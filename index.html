@@ -977,6 +977,8 @@ function vueConnexion(m) {
         const { error } = await sb.auth.signInWithOtp({
           email,
           options: {
+            // Adresse de retour après le clic sur le lien de l'e-mail : l'appli elle-même
+            emailRedirectTo: location.origin + location.pathname.replace(/index\.html$/, ''),
             shouldCreateUser: inscription,
             data: inscription ? { prenom: d.prenom.trim(), nom: d.nom.trim(), numero_licence: (d.numero_licence || '').trim() || null } : undefined
           }
