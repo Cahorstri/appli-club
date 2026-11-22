@@ -1,0 +1,41 @@
+name: Maintien en activité
+
+# Interroge la base Supabase chaque jour pour éviter la mise en veille
+# du projet gratuit, et fait un petit enregistrement le 1er de chaque mois
+# pour que GitHub ne désactive pas cette tâche faute d'activité sur le dépôt.
+
+on:
+  schedule:
+    - cron: '17 6 * * *'   # tous les jours vers 7h (heure de Paris)
+  workflow_dispatch:        # permet aussi de la lancer à la main
+
+permissions:
+  contents: write
+
+jobs:
+  maintien:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Interroger la base Supabase
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://ehluvrwdeigbzykyopui.supabase.co/rest/v1/infos_club?select=id" \
+            -H "apikey: sb_publishable_kZvdTTbvpRkJ7GbRE_QU1w_EeN50GWs")
+          echo "Réponse de Supabase : $code"
+          test "$code" = "200"
+
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Garder le dépôt actif (le 1er du mois)
+        run: |
+          if [ "$(date +%d)" = "01" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            date -u +"%Y-%m-%d %H:%M UTC" > .maintien-activite
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .maintien-activite
+            git commit -m "Maintien en activité" || echo "Rien à enregistrer"
+            git push
+          else
+            echo "Pas d'enregistrement aujourd'hui."
+          fi
