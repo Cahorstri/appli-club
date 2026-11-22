@@ -76,14 +76,14 @@ nav.onglets {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 nav.onglets button {
-  flex: 1; max-width: 150px; background: none; border: 0; cursor: pointer;
-  color: var(--doux); padding: 8px 2px 9px; font: 600 12.5px var(--titre); letter-spacing: .02em;
+  flex: 1; max-width: 130px; min-width: 0; background: none; border: 0; cursor: pointer;
+  color: var(--doux); padding: 8px 0 9px; font: 600 12px var(--titre); letter-spacing: .01em; white-space: nowrap;
   display: flex; flex-direction: column; align-items: center; gap: 3px; position: relative;
 }
-nav.onglets svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+nav.onglets svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 nav.onglets button[aria-current="page"] { color: var(--encre); }
 nav.onglets button[aria-current="page"]::before {
-  content: ""; position: absolute; top: 0; left: 22%; right: 22%; height: 3px; border-radius: 0 0 3px 3px;
+  content: ""; position: absolute; top: 0; left: 20%; right: 20%; height: 3px; border-radius: 0 0 3px 3px;
   background: var(--piste);
 }
 h1 { font: 700 30px/1.1 var(--titre); margin: 0; }
@@ -163,6 +163,21 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--eau); }
 details summary { cursor: pointer; color: var(--doux); font-size: 15px; }
 .noms { margin: 6px 0 4px; padding-left: 18px; }
 .a-venir { margin-top: 26px; }
+.bienvenue { margin: 4px 0 22px; }
+.bienvenue .date { color: var(--doux); font-size: 15px; margin-top: 2px; }
+.bienvenue .date::first-letter { text-transform: uppercase; }
+.tuiles { display: grid; gap: 12px; }
+@media (min-width: 640px) { .tuiles { grid-template-columns: 1fr 1fr; } }
+.tuile { display: block; width: 100%; text-align: left; font: inherit; color: var(--encre); cursor: pointer;
+  background: var(--surface); border: 1px solid var(--trait); border-radius: 12px; padding: 14px 16px; }
+.tuile.accent { border-left: 4px solid var(--piste); border-radius: 0 12px 12px 0; }
+.tuile .rubrique { display: flex; justify-content: space-between; align-items: center; font: 600 14px var(--titre); color: var(--doux); margin-bottom: 6px; letter-spacing: .02em; }
+.tuile .rubrique::after { content: "›"; font-size: 20px; line-height: 1; }
+.tuile .principal { font: 700 20px/1.2 var(--titre); }
+.tuile ul { list-style: none; margin: 0; padding: 0; }
+.tuile li { padding: 4px 0; display: flex; justify-content: space-between; gap: 10px; }
+.tuile li + li { border-top: 1px solid var(--trait); }
+.tuile .annule { color: var(--piste); font-weight: 600; }
 .rgpd { scroll-margin-top: 72px; }
 .rgpd summary { list-style: none; display: flex; align-items: center; gap: 8px; }
 .rgpd summary::-webkit-details-marker { display: none; }
@@ -218,10 +233,11 @@ section + section { margin-top: 28px; }
 <main id="main" tabindex="-1"><p class="charge">Chargement…</p></main>
 
 <nav class="onglets" aria-label="Rubriques">
-  <button data-onglet="accueil"><svg viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 6 2.5 8 2.5 8h-17S6 15 6 9M10 20.5a2.2 2.2 0 0 0 4 0"/></svg>Annonces</button>
-  <button data-onglet="courses"><svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h12l-2.5 4.5L17 13H5"/></svg>Courses</button>
+  <button data-onglet="accueil"><svg viewBox="0 0 24 24"><path d="M4 11 12 4l8 7M6.5 9.5V20h11V9.5M10 20v-5h4v5"/></svg>Accueil</button>
+  <button data-onglet="annonces"><svg viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 6 2.5 8 2.5 8h-17S6 15 6 9M10 20.5a2.2 2.2 0 0 0 4 0"/></svg>Annonces</button>
   <button data-onglet="entrainements"><svg viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 2M10 3h4"/></svg>Entraînements</button>
   <button data-onglet="sondages"><svg viewBox="0 0 24 24"><path d="M5 20v-8M12 20V5M19 20v-5"/></svg>Sondages</button>
+  <button data-onglet="courses"><svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h12l-2.5 4.5L17 13H5"/></svg>Courses</button>
   <button data-onglet="club"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16.5v-5M12 8h.01"/></svg>Club</button>
 </nav>
 
@@ -362,9 +378,109 @@ function zoneForm(m, html) {
 }
 
 /* =====================================================================
+   ACCUEIL : tableau de bord
+   ===================================================================== */
+function prochainEntrainement(creneaux, modifs) {
+  const now = new Date();
+  const hNow = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  for (let i = 0; i < 8; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+    const k = ymd(d), jour = (d.getDay() + 6) % 7 + 1;
+    const duJour = creneaux.filter(c => c.actif && c.jour === jour
+      && (!c.valide_du || c.valide_du <= k) && (!c.valide_au || c.valide_au >= k)
+      && (i > 0 || (c.heure_fin || c.heure_debut).slice(0, 5) > hNow));
+    if (duJour.length) {
+      const c = duJour[0];
+      const modif = modifs.find(x => x.date === k && (!x.creneau_id || x.creneau_id === c.id));
+      return { c, date: k, i, modif };
+    }
+  }
+  return null;
+}
+
+async function vueAccueil(m) {
+  const auj = ymd(new Date());
+  const valide = estValide();
+  const [creneaux, modifs] = await Promise.all([
+    q(sb.from('creneaux').select('*').order('heure_debut')),
+    q(sb.from('modifs_entrainement').select('*').gte('date', auj).order('date'))
+  ]);
+  let annonces = [], courses = [], mesParts = [], sondages = [], mesVotes = [], attente = 0;
+  if (valide) {
+    const nowIso = new Date().toISOString();
+    [annonces, courses, sondages, mesParts, mesVotes] = await Promise.all([
+      q(sb.from('annonces').select('id, titre, publiee_le, epinglee').order('epinglee', { ascending: false }).order('publiee_le', { ascending: false }).limit(3)),
+      q(sb.from('courses').select('id, nom, lieu, date_debut, date_fin').or(`date_debut.gte.${auj},date_fin.gte.${auj}`).order('date_debut').limit(3)),
+      q(sb.from('sondages').select('id, question, cloture_le').lte('ouvert_le', nowIso).gt('cloture_le', nowIso).order('cloture_le')),
+      q(sb.from('participations').select('course_id').eq('profil_id', S.profil.id)),
+      q(sb.from('votes').select('sondage_id').eq('profil_id', S.profil.id))
+    ]);
+    if (estBureau()) {
+      const { count } = await sb.from('profils').select('id', { count: 'exact', head: true }).eq('statut', 'en_attente');
+      attente = count || 0;
+    }
+  }
+
+  const prochain = prochainEntrainement(creneaux, modifs);
+  const quand = p => p.i === 0 ? "Aujourd'hui" : p.i === 1 ? 'Demain' : majuscule(fmtJour(p.date));
+  const vu = new Date(lire('annonces_vues') || 0);
+  const nouvelles = annonces.filter(a => new Date(a.publiee_le) > vu).length;
+  const mesCourses = new Set(mesParts.map(p => p.course_id));
+  const aVoter = sondages.filter(s => !mesVotes.some(v => v.sondage_id === s.id));
+
+  const tuiles = [];
+  if (attente) tuiles.push(`<button type="button" class="tuile accent" data-aller="gestion">
+    <span class="rubrique">Bureau</span>
+    <span class="principal">${attente} demande${attente > 1 ? 's' : ''} de compte en attente</span></button>`);
+  tuiles.push(`<button type="button" class="tuile" data-aller="entrainements">
+    <span class="rubrique">Prochain entraînement</span>
+    ${prochain ? `<span class="principal">${esc(quand(prochain))} à ${fmtHeure(prochain.c.heure_debut)}</span>
+      <p style="margin:4px 0 0">${esc(prochain.c.discipline)}${prochain.c.lieu ? `, ${esc(prochain.c.lieu)}` : ''}</p>
+      ${prochain.modif ? `<p class="${prochain.modif.type === 'annulation' ? 'annule' : ''}" style="margin:4px 0 0">${prochain.modif.type === 'annulation' ? 'Annulé : ' : 'Attention : '}${esc(prochain.modif.message)}</p>` : ''}`
+      : '<span class="sous">Les horaires ne sont pas encore en ligne.</span>'}
+    ${modifs.length > (prochain?.modif ? 1 : 0) ? `<p class="sous petit" style="margin:6px 0 0">D'autres changements sont prévus cette semaine.</p>` : ''}
+  </button>`);
+  if (valide) {
+    tuiles.push(`<button type="button" class="tuile" data-aller="annonces">
+      <span class="rubrique">Annonces${nouvelles ? ` <span class="etiquette nouveau" style="margin-left:6px">${nouvelles} nouvelle${nouvelles > 1 ? 's' : ''}</span>` : ''}</span>
+      ${annonces.length ? `<ul>${annonces.map(a => `<li><span>${esc(a.titre)}</span></li>`).join('')}</ul>` : '<span class="sous">Aucune annonce pour le moment.</span>'}
+    </button>`);
+    tuiles.push(`<button type="button" class="tuile" data-aller="sondages">
+      <span class="rubrique">Sondages</span>
+      ${sondages.length ? `<ul>${sondages.map(s => `<li><span>${esc(s.question)}</span>${aVoter.includes(s) ? '<span class="etiquette nouveau">À voter</span>' : '<span class="sous petit">Voté</span>'}</li>`).join('')}</ul>`
+        : '<span class="sous">Aucun sondage en cours.</span>'}
+    </button>`);
+    tuiles.push(`<button type="button" class="tuile" data-aller="courses">
+      <span class="rubrique">Prochaines courses</span>
+      ${courses.length ? `<ul>${courses.map(c => `<li><span>${esc(fmtCourt(c.date_debut))}, ${esc(c.nom)}</span>${mesCourses.has(c.id) ? '<span class="etiquette eau">J\'y vais</span>' : ''}</li>`).join('')}</ul>`
+        : '<span class="sous">Aucune course au calendrier.</span>'}
+    </button>`);
+  }
+
+  let entete;
+  if (!S.session) entete = `<h1>Bienvenue</h1>
+    <p class="date">${esc(fmtJour(auj))}</p>
+    <p style="margin-top:12px">L'appli des licenciés de Cahors Triathlon : annonces du club, entraînements, courses et sondages.</p>
+    <div class="actions"><button class="btn" type="button" data-connexion="connexion">Se connecter</button>
+      <button class="btn sec" type="button" data-connexion="inscription">Créer mon compte</button></div>`;
+  else entete = `<h1>Bonjour${S.profil?.prenom ? ' ' + esc(S.profil.prenom) : ''}</h1>
+    <p class="date">${esc(fmtJour(auj))}</p>
+    ${S.profil?.statut === 'en_attente' ? '<p class="alerte" style="margin-top:12px">Votre compte est en attente de validation par le bureau. Vous aurez bientôt accès aux annonces, aux courses et aux sondages.</p>' : ''}
+    ${S.profil?.statut === 'desactive' ? '<p class="alerte" style="margin-top:12px">Votre accès a été désactivé. Contactez le bureau si vous pensez qu\'il s\'agit d\'une erreur.</p>' : ''}`;
+
+  m.innerHTML = `<div class="bienvenue">${entete}</div><div class="tuiles">${tuiles.join('')}</div>`;
+  m.onclick = e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.connexion) { S.connexion.mode = b.dataset.connexion; S.connexion.email = null; return aller('profil'); }
+    if (b.dataset.aller) aller(b.dataset.aller);
+  };
+}
+
+/* =====================================================================
    ANNONCES
    ===================================================================== */
-async function vueAccueil(m) {
+async function vueAnnonces(m) {
   if (!garde(m)) return;
   const annonces = await q(sb.from('annonces').select('*')
     .order('epinglee', { ascending: false }).order('publiee_le', { ascending: false }));
@@ -1085,7 +1201,7 @@ async function vueGestion(m) {
 }
 
 const VUES = {
-  accueil: vueAccueil, courses: vueCourses, entrainements: vueEntrainements,
+  accueil: vueAccueil, annonces: vueAnnonces, courses: vueCourses, entrainements: vueEntrainements,
   sondages: vueSondages, club: vueClub, profil: vueProfil, gestion: vueGestion
 };
 
@@ -1116,7 +1232,6 @@ async function demarrer() {
       setTimeout(async () => { await chargerProfil(); rendre(); }, 0);
     }
   });
-  if (!S.session) S.onglet = 'entrainements';
   rendre();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
 }
