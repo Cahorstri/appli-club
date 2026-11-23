@@ -163,21 +163,22 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--eau); }
 details summary { cursor: pointer; color: var(--doux); font-size: 15px; }
 .noms { margin: 6px 0 4px; padding-left: 18px; }
 .a-venir { margin-top: 26px; }
-.bienvenue { margin: 4px 0 22px; }
-.bienvenue .date { color: var(--doux); font-size: 15px; margin-top: 2px; }
-.bienvenue .date::first-letter { text-transform: uppercase; }
-.tuiles { display: grid; gap: 12px; }
-@media (min-width: 640px) { .tuiles { grid-template-columns: 1fr 1fr; } }
-.tuile { display: block; width: 100%; text-align: left; font: inherit; color: var(--encre); cursor: pointer;
-  background: var(--surface); border: 1px solid var(--trait); border-radius: 12px; padding: 14px 16px; }
-.tuile.accent { border-left: 4px solid var(--piste); border-radius: 0 12px 12px 0; }
-.tuile .rubrique { display: flex; justify-content: space-between; align-items: center; font: 600 14px var(--titre); color: var(--doux); margin-bottom: 6px; letter-spacing: .02em; }
-.tuile .rubrique::after { content: "›"; font-size: 20px; line-height: 1; }
-.tuile .principal { font: 700 20px/1.2 var(--titre); }
-.tuile ul { list-style: none; margin: 0; padding: 0; }
-.tuile li { padding: 4px 0; display: flex; justify-content: space-between; gap: 10px; }
-.tuile li + li { border-top: 1px solid var(--trait); }
-.tuile .annule { color: var(--piste); font-weight: 600; }
+.accueil { text-align: center; margin: 8px 0 22px; }
+.grand-logo { width: min(260px, 70%); height: auto; display: block; margin: 4px auto 18px; }
+.accueil .date { color: var(--doux); font-size: 15px; margin-top: 2px; }
+.accueil .date::first-letter { text-transform: uppercase; }
+.accueil .message { margin-top: 14px; }
+.actions.centre { justify-content: center; }
+.grille-accueil { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 480px; margin: 0 auto; }
+.gros-bouton { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--trait); border-radius: 16px; padding: 22px 8px 18px;
+  font: 700 18px var(--titre); color: var(--encre); cursor: pointer; }
+.gros-bouton svg { width: 34px; height: 34px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.gros-bouton svg.ic-eau { color: var(--eau); }
+.gros-bouton svg.ic-piste { color: var(--piste); }
+.gros-bouton .badge { position: absolute; top: 10px; right: 10px; min-width: 24px; height: 24px; font-size: 13px; }
+.gros-bouton svg.verrou { position: absolute; top: 10px; right: 10px; width: 16px; height: 16px; color: var(--doux); stroke-width: 2; }
+.gros-bouton:active { transform: scale(.98); }
 .rgpd { scroll-margin-top: 72px; }
 .rgpd summary { list-style: none; display: flex; align-items: center; gap: 8px; }
 .rgpd summary::-webkit-details-marker { display: none; }
@@ -378,97 +379,67 @@ function zoneForm(m, html) {
 }
 
 /* =====================================================================
-   ACCUEIL : tableau de bord
+   ACCUEIL : logo, salutation et gros boutons vers les rubriques
    ===================================================================== */
-function prochainEntrainement(creneaux, modifs) {
-  const now = new Date();
-  const hNow = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  for (let i = 0; i < 8; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
-    const k = ymd(d), jour = (d.getDay() + 6) % 7 + 1;
-    const duJour = creneaux.filter(c => c.actif && c.jour === jour
-      && (!c.valide_du || c.valide_du <= k) && (!c.valide_au || c.valide_au >= k)
-      && (i > 0 || (c.heure_fin || c.heure_debut).slice(0, 5) > hNow));
-    if (duJour.length) {
-      const c = duJour[0];
-      const modif = modifs.find(x => x.date === k && (!x.creneau_id || x.creneau_id === c.id));
-      return { c, date: k, i, modif };
-    }
-  }
-  return null;
-}
+const ICONES = {
+  annonces: '<path d="M6 9a6 6 0 0 1 12 0c0 6 2.5 8 2.5 8h-17S6 15 6 9M10 20.5a2.2 2.2 0 0 0 4 0"/>',
+  entrainements: '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 2M10 3h4"/>',
+  sondages: '<path d="M5 20v-8M12 20V5M19 20v-5"/>',
+  courses: '<path d="M5 21V4M5 4h12l-2.5 4.5L17 13H5"/>'
+};
 
 async function vueAccueil(m) {
   const auj = ymd(new Date());
   const valide = estValide();
-  const [creneaux, modifs] = await Promise.all([
-    q(sb.from('creneaux').select('*').order('heure_debut')),
-    q(sb.from('modifs_entrainement').select('*').gte('date', auj).order('date'))
-  ]);
-  let annonces = [], courses = [], mesParts = [], sondages = [], mesVotes = [], attente = 0;
+  let nouvelles = 0, aVoter = 0, attente = 0;
   if (valide) {
     const nowIso = new Date().toISOString();
-    [annonces, courses, sondages, mesParts, mesVotes] = await Promise.all([
-      q(sb.from('annonces').select('id, titre, publiee_le, epinglee').order('epinglee', { ascending: false }).order('publiee_le', { ascending: false }).limit(3)),
-      q(sb.from('courses').select('id, nom, lieu, date_debut, date_fin').or(`date_debut.gte.${auj},date_fin.gte.${auj}`).order('date_debut').limit(3)),
-      q(sb.from('sondages').select('id, question, cloture_le').lte('ouvert_le', nowIso).gt('cloture_le', nowIso).order('cloture_le')),
-      q(sb.from('participations').select('course_id').eq('profil_id', S.profil.id)),
+    const vu = new Date(lire('annonces_vues') || 0).toISOString();
+    const [ann, sondages, mesVotes] = await Promise.all([
+      sb.from('annonces').select('id', { count: 'exact', head: true }).gt('publiee_le', vu),
+      q(sb.from('sondages').select('id').lte('ouvert_le', nowIso).gt('cloture_le', nowIso)),
       q(sb.from('votes').select('sondage_id').eq('profil_id', S.profil.id))
     ]);
+    nouvelles = ann.count || 0;
+    const votes = new Set(mesVotes.map(v => v.sondage_id));
+    aVoter = sondages.filter(s => !votes.has(s.id)).length;
     if (estBureau()) {
       const { count } = await sb.from('profils').select('id', { count: 'exact', head: true }).eq('statut', 'en_attente');
       attente = count || 0;
     }
   }
 
-  const prochain = prochainEntrainement(creneaux, modifs);
-  const quand = p => p.i === 0 ? "Aujourd'hui" : p.i === 1 ? 'Demain' : majuscule(fmtJour(p.date));
-  const vu = new Date(lire('annonces_vues') || 0);
-  const nouvelles = annonces.filter(a => new Date(a.publiee_le) > vu).length;
-  const mesCourses = new Set(mesParts.map(p => p.course_id));
-  const aVoter = sondages.filter(s => !mesVotes.some(v => v.sondage_id === s.id));
+  const bouton = (cle, libelle, badge, couleur, ouvert) => `
+    <button type="button" class="gros-bouton" data-aller="${cle}">
+      ${badge ? `<span class="badge">${badge}</span>` : ''}
+      ${ouvert ? '' : '<svg class="verrou" viewBox="0 0 24 24" aria-label="Réservé aux licenciés"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>'}
+      <svg viewBox="0 0 24 24" class="${couleur}" aria-hidden="true">${ICONES[cle]}</svg>
+      <span>${libelle}</span>
+    </button>`;
 
-  const tuiles = [];
-  if (attente) tuiles.push(`<button type="button" class="tuile accent" data-aller="gestion">
-    <span class="rubrique">Bureau</span>
-    <span class="principal">${attente} demande${attente > 1 ? 's' : ''} de compte en attente</span></button>`);
-  tuiles.push(`<button type="button" class="tuile" data-aller="entrainements">
-    <span class="rubrique">Prochain entraînement</span>
-    ${prochain ? `<span class="principal">${esc(quand(prochain))} à ${fmtHeure(prochain.c.heure_debut)}</span>
-      <p style="margin:4px 0 0">${esc(prochain.c.discipline)}${prochain.c.lieu ? `, ${esc(prochain.c.lieu)}` : ''}</p>
-      ${prochain.modif ? `<p class="${prochain.modif.type === 'annulation' ? 'annule' : ''}" style="margin:4px 0 0">${prochain.modif.type === 'annulation' ? 'Annulé : ' : 'Attention : '}${esc(prochain.modif.message)}</p>` : ''}`
-      : '<span class="sous">Les horaires ne sont pas encore en ligne.</span>'}
-    ${modifs.length > (prochain?.modif ? 1 : 0) ? `<p class="sous petit" style="margin:6px 0 0">D'autres changements sont prévus cette semaine.</p>` : ''}
-  </button>`);
-  if (valide) {
-    tuiles.push(`<button type="button" class="tuile" data-aller="annonces">
-      <span class="rubrique">Annonces${nouvelles ? ` <span class="etiquette nouveau" style="margin-left:6px">${nouvelles} nouvelle${nouvelles > 1 ? 's' : ''}</span>` : ''}</span>
-      ${annonces.length ? `<ul>${annonces.map(a => `<li><span>${esc(a.titre)}</span></li>`).join('')}</ul>` : '<span class="sous">Aucune annonce pour le moment.</span>'}
-    </button>`);
-    tuiles.push(`<button type="button" class="tuile" data-aller="sondages">
-      <span class="rubrique">Sondages</span>
-      ${sondages.length ? `<ul>${sondages.map(s => `<li><span>${esc(s.question)}</span>${aVoter.includes(s) ? '<span class="etiquette nouveau">À voter</span>' : '<span class="sous petit">Voté</span>'}</li>`).join('')}</ul>`
-        : '<span class="sous">Aucun sondage en cours.</span>'}
-    </button>`);
-    tuiles.push(`<button type="button" class="tuile" data-aller="courses">
-      <span class="rubrique">Prochaines courses</span>
-      ${courses.length ? `<ul>${courses.map(c => `<li><span>${esc(fmtCourt(c.date_debut))}, ${esc(c.nom)}</span>${mesCourses.has(c.id) ? '<span class="etiquette eau">J\'y vais</span>' : ''}</li>`).join('')}</ul>`
-        : '<span class="sous">Aucune course au calendrier.</span>'}
-    </button>`);
-  }
-
-  let entete;
-  if (!S.session) entete = `<h1>Bienvenue</h1>
-    <p class="date">${esc(fmtJour(auj))}</p>
-    <p style="margin-top:12px">L'appli des licenciés de Cahors Triathlon : annonces du club, entraînements, courses et sondages.</p>
-    <div class="actions"><button class="btn" type="button" data-connexion="connexion">Se connecter</button>
+  let message = '';
+  if (!S.session) message = `
+    <p>L'appli des licenciés : annonces du club, entraînements, sondages et courses.</p>
+    <div class="actions centre"><button class="btn" type="button" data-connexion="connexion">Se connecter</button>
       <button class="btn sec" type="button" data-connexion="inscription">Créer mon compte</button></div>`;
-  else entete = `<h1>Bonjour${S.profil?.prenom ? ' ' + esc(S.profil.prenom) : ''}</h1>
-    <p class="date">${esc(fmtJour(auj))}</p>
-    ${S.profil?.statut === 'en_attente' ? '<p class="alerte" style="margin-top:12px">Votre compte est en attente de validation par le bureau. Vous aurez bientôt accès aux annonces, aux courses et aux sondages.</p>' : ''}
-    ${S.profil?.statut === 'desactive' ? '<p class="alerte" style="margin-top:12px">Votre accès a été désactivé. Contactez le bureau si vous pensez qu\'il s\'agit d\'une erreur.</p>' : ''}`;
+  else if (S.profil?.statut === 'en_attente') message = '<p class="alerte">Votre compte est en attente de validation par le bureau.</p>';
+  else if (S.profil?.statut === 'desactive') message = '<p class="alerte">Votre accès a été désactivé. Contactez le bureau si vous pensez qu\'il s\'agit d\'une erreur.</p>';
+  if (attente) message += `<button type="button" class="lien-btn" data-aller="gestion">${attente} demande${attente > 1 ? 's' : ''} de compte à valider</button>`;
 
-  m.innerHTML = `<div class="bienvenue">${entete}</div><div class="tuiles">${tuiles.join('')}</div>`;
+  m.innerHTML = `
+    <div class="accueil">
+      <img src="logo.png" alt="Cahors Triathlon" class="grand-logo">
+      <h1>${S.session ? `Bonjour${S.profil?.prenom ? ' ' + esc(S.profil.prenom) : ''}` : 'Bienvenue'}</h1>
+      <p class="date">${esc(fmtJour(auj))}</p>
+      ${message ? `<div class="message">${message}</div>` : ''}
+    </div>
+    <div class="grille-accueil">
+      ${bouton('annonces', 'Annonces', nouvelles, '', valide)}
+      ${bouton('entrainements', 'Entraînements', 0, 'ic-eau', true)}
+      ${bouton('sondages', 'Sondages', aVoter, '', valide)}
+      ${bouton('courses', 'Courses', 0, 'ic-piste', valide)}
+    </div>`;
+
   m.onclick = e => {
     const b = e.target.closest('button');
     if (!b) return;
