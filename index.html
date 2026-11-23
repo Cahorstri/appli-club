@@ -391,16 +391,20 @@ const ICONES = {
 async function vueAccueil(m) {
   const auj = ymd(new Date());
   const valide = estValide();
-  let nouvelles = 0, aVoter = 0, attente = 0;
+  let nouvelles = 0, aVoter = 0, attente = 0, nouvellesCourses = 0;
   if (valide) {
     const nowIso = new Date().toISOString();
     const vu = new Date(lire('annonces_vues') || 0).toISOString();
-    const [ann, sondages, mesVotes] = await Promise.all([
+    const coursesVues = new Date(lire('courses_vues') || 0).toISOString();
+    const [ann, sondages, mesVotes, crs] = await Promise.all([
       sb.from('annonces').select('id', { count: 'exact', head: true }).gt('publiee_le', vu),
       q(sb.from('sondages').select('id').lte('ouvert_le', nowIso).gt('cloture_le', nowIso)),
-      q(sb.from('votes').select('sondage_id').eq('profil_id', S.profil.id))
+      q(sb.from('votes').select('sondage_id').eq('profil_id', S.profil.id)),
+      // Courses ajoutées par les autres licenciés depuis la dernière visite de la rubrique
+      sb.from('courses').select('id', { count: 'exact', head: true }).gt('created_at', coursesVues).neq('cree_par', S.profil.id)
     ]);
     nouvelles = ann.count || 0;
+    nouvellesCourses = crs.count || 0;
     const votes = new Set(mesVotes.map(v => v.sondage_id));
     aVoter = sondages.filter(s => !votes.has(s.id)).length;
     if (estBureau()) {
@@ -437,7 +441,7 @@ async function vueAccueil(m) {
       ${bouton('annonces', 'Annonces', nouvelles, '', valide)}
       ${bouton('entrainements', 'Entraînements', 0, 'ic-eau', true)}
       ${bouton('sondages', 'Sondages', aVoter, '', valide)}
-      ${bouton('courses', 'Courses', 0, 'ic-piste', valide)}
+      ${bouton('courses', 'Courses', nouvellesCourses, 'ic-piste', valide)}
     </div>`;
 
   m.onclick = e => {
@@ -513,6 +517,7 @@ async function vueAnnonces(m) {
    ===================================================================== */
 async function vueCourses(m) {
   if (!garde(m)) return;
+  ecrire('courses_vues', new Date().toISOString());
   const y = S.mois.getFullYear(), mo = S.mois.getMonth();
   const debut = ymd(new Date(y, mo, 1)), fin = ymd(new Date(y, mo + 1, 0));
   const courses = await q(sb.from('courses').select('*, createur:profils(prenom, nom)')
