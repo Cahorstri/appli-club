@@ -1,6 +1,6 @@
 // Service worker : met en cache l'interface pour un démarrage rapide.
 // Les données (Supabase) ne sont jamais mises en cache.
-const CACHE = 'club-tri-v8';
+const CACHE = 'club-tri-v9';
 const FICHIERS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png', './logo.png', './supabase.js'];
 
 self.addEventListener('install', e => {

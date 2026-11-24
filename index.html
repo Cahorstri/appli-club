@@ -107,6 +107,13 @@ a { color: var(--eau); }
 .lien-btn.danger { color: var(--piste); }
 .lien-btn.wa { color: #128C7E; font-weight: 600; }
 .actions-bureau { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; }
+.pj { margin: 10px 0 4px; display: grid; gap: 8px; }
+.pj-images { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.pj-images img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; display: block; background: var(--trait); }
+.pj-images a:only-child img { aspect-ratio: auto; max-height: 420px; object-fit: contain; }
+.pj-doc { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--trait); border-radius: 8px; background: var(--fond); color: var(--encre); text-decoration: none; }
+.pj-doc svg { width: 20px; height: 20px; flex: none; fill: none; stroke: var(--eau); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.pj-doc .nom { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible {
   outline: 3px solid var(--eau); outline-offset: 2px;
 }
@@ -141,7 +148,15 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--eau); }
 
 /* Calendrier des courses : l'élément signature */
 .mois { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.mois h2 { margin: 0; font-size: 26px; text-transform: none; }
+.titre-mois { background: none; border: 0; padding: 4px 0; cursor: pointer; color: var(--encre); font: 700 26px var(--titre); display: flex; align-items: center; gap: 6px; }
+.titre-mois span { font-size: 16px; color: var(--doux); }
+.choix-mois { background: var(--surface); border: 1px solid var(--trait); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+.choix-annee { display: flex; align-items: center; justify-content: center; gap: 18px; margin-bottom: 10px; font: 700 20px var(--titre); }
+.choix-annee button { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--trait); background: var(--fond); color: var(--encre); font-size: 18px; cursor: pointer; }
+.grille-mois { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.grille-mois button { border: 0; border-radius: 8px; background: var(--fond); color: var(--encre); font: 600 16px var(--titre); padding: 10px 0; cursor: pointer; }
+.grille-mois button[aria-pressed="true"] { background: var(--route); color: #fff; }
+.calendrier { touch-action: pan-y; overflow: hidden; }
 .mois .nav-mois { display: flex; gap: 6px; }
 .mois .nav-mois button { width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--trait); background: var(--surface); color: var(--encre); font-size: 20px; cursor: pointer; }
 .cal-tete, .cal-grille { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; }
@@ -281,6 +296,78 @@ const ecrire = (k, v) => { try { localStorage.setItem(k, v); } catch { } };
 const donnees = f => Object.fromEntries(new FormData(f).entries());
 const adresseAppli = () => location.origin + location.pathname.replace(/index\.html$/, '');
 const tronquer = (t, n) => t.length > n ? t.slice(0, n).trimEnd() + '…' : t;
+/* ---------- Pièces jointes (annonces, sondages) ---------- */
+const BUCKET_PJ = 'pieces-jointes';
+const EXT_PJ = /\.(jpe?g|png|webp|gif|heic|heif|pdf|docx?|xlsx?|pptx?|odt|ods|odp|txt)$/i;
+const ACCEPT_PJ = 'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.txt';
+const tailleLisible = n => n < 1048576 ? Math.max(1, Math.round(n / 1024)) + ' Ko' : (n / 1048576).toFixed(1).replace('.', ',') + ' Mo';
+const nomSur = n => n.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-80);
+const champPJ = () => `<label>Pièces jointes : images, PDF ou documents (5 au maximum, 10 Mo chacune)
+  <input type="file" name="fichiers" multiple accept="${ACCEPT_PJ}"></label>`;
+
+// Les photos de téléphone sont réduites avant envoi (1600 px, JPEG) pour économiser l'espace
+async function reduireImage(f) {
+  if (!/^image\/(jpeg|png|webp)$/.test(f.type)) return f;
+  try {
+    const img = await createImageBitmap(f);
+    const r = Math.min(1, 1600 / Math.max(img.width, img.height));
+    if (r === 1 && f.size < 1500000) return f;
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * r); c.height = Math.round(img.height * r);
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.82));
+    if (!blob || blob.size >= f.size) return f;
+    return new File([blob], f.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch { return f; }
+}
+
+async function envoyerPJ(dossier, input) {
+  const fichiers = [...(input?.files || [])];
+  if (fichiers.length > 5) throw new Error('5 pièces jointes au maximum.');
+  const envoyes = [];
+  try {
+    for (const brut of fichiers) {
+      if (!EXT_PJ.test(brut.name)) throw new Error(`Type de fichier non accepté : ${brut.name}`);
+      const f = await reduireImage(brut);
+      if (f.size > 10 * 1048576) throw new Error(`${brut.name} dépasse 10 Mo.`);
+      const chemin = `${dossier}/${Date.now()}-${nomSur(f.name)}`;
+      await q(sb.storage.from(BUCKET_PJ).upload(chemin, f, { contentType: f.type || 'application/octet-stream' }));
+      envoyes.push({ chemin, nom: f.name, type: f.type || '', taille: f.size });
+    }
+  } catch (e) {
+    await supprimerPJ(envoyes);
+    throw e;
+  }
+  return envoyes;
+}
+
+async function supprimerPJ(pjs) {
+  if (pjs?.length) await sb.storage.from(BUCKET_PJ).remove(pjs.map(p => p.chemin));
+}
+
+async function liensPJ(listes) {
+  const chemins = [...new Set(listes.flat().filter(Boolean).map(p => p.chemin))];
+  if (!chemins.length) return {};
+  const { data, error } = await sb.storage.from(BUCKET_PJ).createSignedUrls(chemins, 3600);
+  if (error) return {};
+  return Object.fromEntries(data.filter(d => d.signedUrl).map(d => [d.path, d.signedUrl]));
+}
+
+function blocPJ(pjs, liens) {
+  const dispo = (pjs || []).filter(p => liens[p.chemin]);
+  if (!dispo.length) return '';
+  const images = dispo.filter(p => /^image\/(jpeg|png|webp|gif)$/.test(p.type));
+  const docs = dispo.filter(p => !images.includes(p));
+  return `<div class="pj">
+    ${images.length ? `<div class="pj-images">${images.map(p => `<a href="${esc(liens[p.chemin])}" target="_blank" rel="noopener"><img src="${esc(liens[p.chemin])}" alt="${esc(p.nom)}" loading="lazy"></a>`).join('')}</div>` : ''}
+    ${docs.map(p => `<a class="pj-doc" href="${esc(liens[p.chemin])}" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5 12.4 19a5 5 0 0 1-7.1-7.1l7.7-7.6a3.3 3.3 0 0 1 4.7 4.7l-7.7 7.6a1.7 1.7 0 0 1-2.4-2.4l7-6.9"/></svg>
+      <span class="nom">${esc(p.nom)}</span><span class="sous petit">${tailleLisible(p.taille)}</span></a>`).join('')}
+  </div>`;
+}
+
 const lienWhatsApp = texte => `<a class="lien-btn wa" href="https://wa.me/?text=${encodeURIComponent(texte)}" target="_blank" rel="noopener noreferrer">Partager sur WhatsApp</a>`;
 
 async function q(requete) {
@@ -477,6 +564,7 @@ async function vueAnnonces(m) {
   if (!garde(m)) return;
   const annonces = await q(sb.from('annonces').select('*')
     .order('epinglee', { ascending: false }).order('publiee_le', { ascending: false }));
+  const liens = await liensPJ(annonces.map(a => a.pieces_jointes));
   const vu = new Date(lire('annonces_vues') || 0);
   ecrire('annonces_vues', new Date().toISOString());
   const now = new Date();
@@ -497,6 +585,7 @@ async function vueAnnonces(m) {
         </div>
         <h2>${esc(a.titre)}</h2>
         <p>${escBr(a.contenu)}</p>
+        ${blocPJ(a.pieces_jointes, liens)}
         ${estBureau() ? `<p class="actions-bureau">${lienWhatsApp(`📢 Cahors Triathlon : ${a.titre}\n\n${tronquer(a.contenu, 300)}\n\nÀ lire dans l'appli : ${adresseAppli()}#annonces`)}
           <button class="lien-btn danger" type="button" data-suppr="${esc(a.id)}">Supprimer</button></p>` : ''}
       </article>`;
@@ -512,11 +601,17 @@ async function vueAnnonces(m) {
         <label>Texte<textarea name="contenu" required rows="5"></textarea></label>
         <label class="case"><input type="checkbox" name="epinglee"> Épingler en haut de la liste</label>
         <label>Retirer automatiquement après le (facultatif)<input type="date" name="expire"></label>
+        ${champPJ()}
         <div class="actions"><button class="btn">Publier</button><button type="button" class="btn sec" data-annuler>Annuler</button></div>
       </form>`);
     if (b.hasAttribute('data-annuler')) $('#zone-form', m).innerHTML = '';
     if (b.dataset.suppr && confirm('Supprimer définitivement cette annonce ?'))
-      occupe(b, async () => { await q(sb.from('annonces').delete().eq('id', b.dataset.suppr)); toast('Annonce supprimée'); rendre(); });
+      occupe(b, async () => {
+        const a = annonces.find(x => x.id === b.dataset.suppr);
+        await q(sb.from('annonces').delete().eq('id', b.dataset.suppr));
+        await supprimerPJ(a?.pieces_jointes);
+        toast('Annonce supprimée'); rendre();
+      });
   };
   m.onsubmit = e => {
     e.preventDefault();
@@ -524,7 +619,11 @@ async function vueAnnonces(m) {
     occupe(e.submitter, async () => {
       let expire_le = null;
       if (d.expire) { const j = parseYmd(d.expire); j.setHours(23, 59, 59); expire_le = j.toISOString(); }
-      await q(sb.from('annonces').insert({ titre: d.titre.trim(), contenu: d.contenu.trim(), epinglee: !!d.epinglee, expire_le }));
+      const id = crypto.randomUUID();
+      const pieces_jointes = await envoyerPJ(`annonces/${id}`, e.target.fichiers);
+      try {
+        await q(sb.from('annonces').insert({ id, titre: d.titre.trim(), contenu: d.contenu.trim(), epinglee: !!d.epinglee, expire_le, pieces_jointes }));
+      } catch (err) { await supprimerPJ(pieces_jointes); throw err; }
       toast('Annonce publiée');
       rendre();
     });
@@ -569,15 +668,24 @@ async function vueCourses(m) {
   m.innerHTML = `
     <div class="tete"><h1>Courses</h1><button class="btn" type="button" data-action="ajouter">Ajouter une course</button></div>
     <div id="zone-form"></div>
+    <div class="calendrier">
     <div class="mois">
-      <h2>${esc(majuscule(premier.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })))}</h2>
+      <button type="button" class="titre-mois" data-action="choix-mois" aria-expanded="${!!S.choixMois}">
+        ${esc(majuscule(premier.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })))}<span aria-hidden="true">▾</span></button>
       <div class="nav-mois">
         <button type="button" data-mois="-1" aria-label="Mois précédent">‹</button>
         <button type="button" data-mois="1" aria-label="Mois suivant">›</button>
       </div>
     </div>
+    ${S.choixMois ? `<div class="choix-mois">
+      <div class="choix-annee"><button type="button" data-annee="-1" aria-label="Année précédente">‹</button>
+        <strong>${S.anneeChoix}</strong><button type="button" data-annee="1" aria-label="Année suivante">›</button></div>
+      <div class="grille-mois">${Array.from({ length: 12 }, (_, i) => `<button type="button" data-aller-mois="${i}"
+        aria-pressed="${S.anneeChoix === y && i === mo}">${esc(majuscule(new Date(2000, i, 1).toLocaleDateString('fr-FR', { month: 'short' })))}</button>`).join('')}</div>
+    </div>` : ''}
     <div class="cal-tete" aria-hidden="true">${['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(j => `<span>${j}</span>`).join('')}</div>
     <div class="cal-grille">${cases}</div>
+    </div>
     <p class="jour-titre">${esc(fmtJour(S.jour))}</p>
     ${duJour.length ? duJour.map(c => carteCourse(c, parts)).join('') : '<p class="sous">Aucune course ce jour-là. Touchez une date marquée d\'une pastille, ou ajoutez une course.</p>'}
     ${courses.length ? `<div class="a-venir"><h3>Ce mois-ci</h3>${courses.map(c => `
@@ -585,16 +693,49 @@ async function vueCourses(m) {
         <span class="date-court">${esc(fmtCourt(c.date_debut))}</span><span>${esc(c.nom)}${c.lieu ? ` <span class="sous">${esc(c.lieu)}</span>` : ''}</span>
       </button>`).join('')}</div>` : ''}`;
 
+  const allerAuMois = (annee, mois) => {
+    S.mois = new Date(annee, mois, 1);
+    const ceMois = new Date();
+    S.jour = (S.mois.getFullYear() === ceMois.getFullYear() && S.mois.getMonth() === ceMois.getMonth()) ? ymd(ceMois) : ymd(S.mois);
+    S.choixMois = false;
+    rendre();
+  };
+
+  // Balayage horizontal du calendrier pour changer de mois
+  const cal = $('.calendrier', m), grille = $('.cal-grille', m);
+  let x0 = null, y0 = null, dx = 0, horizontal = null;
+  cal.addEventListener('touchstart', e => {
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; dx = 0; horizontal = null;
+    grille.style.transition = 'none';
+  }, { passive: true });
+  cal.addEventListener('touchmove', e => {
+    if (x0 === null) return;
+    dx = e.touches[0].clientX - x0;
+    const dy = e.touches[0].clientY - y0;
+    if (horizontal === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) horizontal = Math.abs(dx) > Math.abs(dy);
+    if (horizontal) grille.style.transform = `translateX(${dx * 0.7}px)`;
+  }, { passive: true });
+  cal.addEventListener('touchend', () => {
+    if (horizontal && Math.abs(dx) > 50) {
+      grille.style.transition = 'transform .15s ease-out';
+      grille.style.transform = `translateX(${dx < 0 ? '-' : ''}40%)`;
+      grille.style.opacity = '0';
+      setTimeout(() => allerAuMois(y, mo + (dx < 0 ? 1 : -1)), 120);
+    } else {
+      grille.style.transition = 'transform .2s ease-out';
+      grille.style.transform = '';
+    }
+    x0 = null;
+  });
+
   m.onclick = async e => {
     const b = e.target.closest('button');
     if (!b) return;
     if (b.dataset.jour) { S.jour = b.dataset.jour; rendre(); return; }
-    if (b.dataset.mois) {
-      S.mois = new Date(y, mo + Number(b.dataset.mois), 1);
-      const ceMois = new Date();
-      S.jour = (S.mois.getFullYear() === ceMois.getFullYear() && S.mois.getMonth() === ceMois.getMonth()) ? ymd(ceMois) : ymd(S.mois);
-      rendre(); return;
-    }
+    if (b.dataset.mois) { allerAuMois(y, mo + Number(b.dataset.mois)); return; }
+    if (b.dataset.action === 'choix-mois') { S.choixMois = !S.choixMois; S.anneeChoix = y; rendre(); return; }
+    if (b.dataset.annee) { S.anneeChoix += Number(b.dataset.annee); rendre(); return; }
+    if (b.dataset.allerMois) { allerAuMois(S.anneeChoix, Number(b.dataset.allerMois)); return; }
     if (b.dataset.action === 'ajouter') { zoneForm(m, formCourse(null)); verifierDoublons(m, null); return; }
     if (b.hasAttribute('data-annuler')) { $('#zone-form', m).innerHTML = ''; return; }
     if (b.dataset.modifier) {
@@ -616,7 +757,13 @@ async function vueCourses(m) {
         toast('Participation retirée'); rendre();
       });
   };
-  m.onchange = e => { if (e.target.name === 'date_debut') verifierDoublons(m, e.target.form.dataset.id || null); };
+  m.onchange = e => {
+    if (e.target.name !== 'date_debut') return;
+    const fin = e.target.form.date_fin;
+    fin.min = e.target.value;
+    if (fin.value && fin.value < e.target.value) fin.value = e.target.value;
+    verifierDoublons(m, e.target.form.dataset.id || null);
+  };
   m.onsubmit = e => {
     e.preventDefault();
     const f = e.target, d = donnees(f);
@@ -674,7 +821,7 @@ function formCourse(c) {
     <label>Lieu<input name="lieu" maxlength="120" value="${esc(c?.lieu)}"></label>
     <div class="deux">
       <label>Date<input type="date" name="date_debut" required value="${esc(c?.date_debut || S.jour)}"></label>
-      <label>Dernier jour, si plusieurs jours<input type="date" name="date_fin" value="${esc(c?.date_fin)}"></label>
+      <label>Dernier jour, si plusieurs jours<input type="date" name="date_fin" min="${esc(c?.date_debut || S.jour)}" value="${esc(c?.date_fin)}"></label>
     </div>
     <div id="doublons"></div>
     <label>Formats, séparés par des virgules<input name="formats" placeholder="XS, S, M, Relais" value="${esc((c?.formats || []).join(', '))}"></label>
@@ -836,6 +983,7 @@ async function vueSondages(m) {
     q(sb.from('options_sondage').select('*').in('sondage_id', ids).order('ordre')),
     q(sb.from('votes').select('sondage_id, option_id, profil_id, profils(prenom, nom)').in('sondage_id', ids))
   ]);
+  const liens = await liensPJ(sondages.map(s => s.pieces_jointes));
   const now = new Date();
   const etat = s => new Date(s.ouvert_le) > now ? 'avenir' : new Date(s.cloture_le) <= now ? 'clos' : 'ouvert';
   const ouverts = sondages.filter(s => etat(s) === 'ouvert');
@@ -852,6 +1000,7 @@ async function vueSondages(m) {
     return `<article class="sondage">
       <h2>${esc(s.question)}</h2>
       ${s.description ? `<p>${escBr(s.description)}</p>` : ''}
+      ${blocPJ(s.pieces_jointes, liens)}
       <p class="sous petit">${et === 'ouvert' ? `Clôture ${esc(fmtDateHeure(s.cloture_le))}` : et === 'clos' ? `Clos depuis le ${esc(fmtDateHeure(s.cloture_le))}` : `Ouvre ${esc(fmtDateHeure(s.ouvert_le))}`}${s.choix_multiple ? '. Plusieurs choix possibles.' : '.'}</p>
       ${opts.map(o => {
         const pour = vs.filter(v => v.option_id === o.id);
@@ -892,12 +1041,18 @@ async function vueSondages(m) {
         <label>Résultats visibles<select name="visibilite">
           <option value="apres_vote">Après avoir voté</option><option value="immediate">Tout de suite, par tous</option><option value="cloture">Seulement à la clôture</option></select></label>
         <label>Clôture le<input type="datetime-local" name="cloture" required value="${ymd(dans7)}T20:00"></label>
+        ${champPJ()}
         <div class="actions"><button class="btn">Publier le sondage</button><button type="button" class="btn sec" data-annuler>Annuler</button></div>
       </form>`);
       return;
     }
     if (b.dataset.suppr && confirm('Supprimer ce sondage et tous ses votes ?'))
-      return occupe(b, async () => { await q(sb.from('sondages').delete().eq('id', b.dataset.suppr)); toast('Sondage supprimé'); rendre(); });
+      return occupe(b, async () => {
+        const s = sondages.find(x => x.id === b.dataset.suppr);
+        await q(sb.from('sondages').delete().eq('id', b.dataset.suppr));
+        await supprimerPJ(s?.pieces_jointes);
+        toast('Sondage supprimé'); rendre();
+      });
     if (b.dataset.voter) {
       const s = sondages.find(x => x.id === b.dataset.sondage);
       const oid = b.dataset.voter;
@@ -921,14 +1076,20 @@ async function vueSondages(m) {
     const cloture = new Date(d.cloture);
     if (!(cloture > new Date())) return toast('La date de clôture doit être dans le futur.', true);
     occupe(e.submitter, async () => {
-      const s = await q(sb.from('sondages').insert({
-        question: d.question.trim(), description: d.description.trim() || null,
-        choix_multiple: !!d.multiple, visibilite_resultats: d.visibilite, cloture_le: cloture.toISOString()
-      }).select('id').single());
+      const id = crypto.randomUUID();
+      const pieces_jointes = await envoyerPJ(`sondages/${id}`, e.target.fichiers);
+      let s;
+      try {
+        s = await q(sb.from('sondages').insert({
+          id, question: d.question.trim(), description: d.description.trim() || null,
+          choix_multiple: !!d.multiple, visibilite_resultats: d.visibilite, cloture_le: cloture.toISOString(), pieces_jointes
+        }).select('id').single());
+      } catch (err) { await supprimerPJ(pieces_jointes); throw err; }
       try {
         await q(sb.from('options_sondage').insert(libelles.map((libelle, i) => ({ sondage_id: s.id, libelle, ordre: i }))));
       } catch (err) {
         await sb.from('sondages').delete().eq('id', s.id);
+        await supprimerPJ(pieces_jointes);
         throw err;
       }
       toast('Sondage publié');
@@ -1233,6 +1394,16 @@ async function demarrer() {
   document.title = CONFIG.nomClub;
   document.querySelectorAll('nav.onglets button').forEach(b => b.addEventListener('click', () => aller(b.dataset.onglet)));
   $('#btn-compte').addEventListener('click', () => aller('profil'));
+  // Date de fin d'une course : le calendrier s'ouvre sur la date de début
+  const caler = e => {
+    const t = e.target;
+    if (t.name === 'date_fin' && !t.value && t.form?.date_debut?.value) {
+      t.min = t.form.date_debut.value;
+      t.value = t.form.date_debut.value;
+    }
+  };
+  document.addEventListener('focusin', caler);
+  document.addEventListener('pointerdown', caler);
 
   if (CONFIG.cle.includes('VOTRE') || CONFIG.url.includes('VOTRE')) {
     $('#main').innerHTML = `<div class="encart"><h2>Configuration à compléter</h2>
