@@ -108,6 +108,13 @@ a { color: var(--eau); }
 .lien-btn.wa { color: #128C7E; font-weight: 600; }
 .actions-bureau { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; }
 .pj { margin: 10px 0 4px; display: grid; gap: 8px; }
+.btn-sondage { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; margin: 10px 0 4px; padding: 12px 14px;
+  border: 1.5px solid var(--eau); border-radius: 10px; background: var(--eau-pale); color: var(--encre); font: inherit; cursor: pointer; }
+.btn-sondage svg { width: 24px; height: 24px; flex: none; fill: none; stroke: var(--eau); stroke-width: 2; stroke-linecap: round; }
+.btn-sondage span { display: grid; font-size: 14px; color: var(--eau); font-weight: 600; }
+.btn-sondage strong { color: var(--encre); font-size: 16px; }
+.sondage { scroll-margin-top: 72px; transition: box-shadow .4s; }
+.sondage.cible { box-shadow: 0 0 0 3px var(--eau); }
 .pj-images { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
 .pj-images img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; display: block; background: var(--trait); }
 .pj-images a:only-child img { aspect-ratio: auto; max-height: 420px; object-fit: contain; }
@@ -565,6 +572,10 @@ async function vueAnnonces(m) {
   const annonces = await q(sb.from('annonces').select('*')
     .order('epinglee', { ascending: false }).order('publiee_le', { ascending: false }));
   const liens = await liensPJ(annonces.map(a => a.pieces_jointes));
+  const idsSondages = [...new Set(annonces.map(a => a.sondage_id).filter(Boolean))];
+  const sondagesLies = idsSondages.length
+    ? Object.fromEntries((await q(sb.from('sondages').select('id, question, cloture_le').in('id', idsSondages))).map(s => [s.id, s]))
+    : {};
   const vu = new Date(lire('annonces_vues') || 0);
   ecrire('annonces_vues', new Date().toISOString());
   const now = new Date();
@@ -586,6 +597,9 @@ async function vueAnnonces(m) {
         <h2>${esc(a.titre)}</h2>
         <p>${escBr(a.contenu)}</p>
         ${blocPJ(a.pieces_jointes, liens)}
+        ${sondagesLies[a.sondage_id] ? (s => `<button type="button" class="btn-sondage" data-sondage-lie="${esc(s.id)}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20v-8M12 20V5M19 20v-5"/></svg>
+          <span>${new Date(s.cloture_le) > now ? 'Répondre au sondage' : 'Voir le résultat du sondage'}<strong>${esc(s.question)}</strong></span></button>`)(sondagesLies[a.sondage_id]) : ''}
         ${estBureau() ? `<p class="actions-bureau">${lienWhatsApp(`📢 Cahors Triathlon : ${a.titre}\n\n${tronquer(a.contenu, 300)}\n\nÀ lire dans l'appli : ${adresseAppli()}#annonces`)}
           <button class="lien-btn danger" type="button" data-suppr="${esc(a.id)}">Supprimer</button></p>` : ''}
       </article>`;
@@ -594,6 +608,16 @@ async function vueAnnonces(m) {
   m.onclick = async e => {
     const b = e.target.closest('button');
     if (!b) return;
+    if (b.dataset.sondageLie) { S.sondageCible = b.dataset.sondageLie; aller('sondages'); return; }
+    if (b.dataset.action === 'nouvelle') setTimeout(async () => {
+      const sel = m.querySelector('select[name="sondage_id"]');
+      if (!sel) return;
+      try {
+        const ouverts = await q(sb.from('sondages').select('id, question').gt('cloture_le', new Date().toISOString()).order('cloture_le'));
+        sel.insertAdjacentHTML('beforeend', ouverts.map(s => `<option value="${esc(s.id)}">${esc(s.question)}</option>`).join(''));
+        if (!ouverts.length) sel.closest('label').insertAdjacentHTML('beforeend', '<span class="sous petit">Aucun sondage en cours pour le moment.</span>');
+      } catch { }
+    }, 0);
     if (b.dataset.action === 'nouvelle') zoneForm(m, `
       <form class="formulaire" id="f-annonce">
         <h2>Nouvelle annonce</h2>
@@ -601,6 +625,7 @@ async function vueAnnonces(m) {
         <label>Texte<textarea name="contenu" required rows="5"></textarea></label>
         <label class="case"><input type="checkbox" name="epinglee"> Épingler en haut de la liste</label>
         <label>Retirer automatiquement après le (facultatif)<input type="date" name="expire"></label>
+        <label>Sondage lié (facultatif)<select name="sondage_id"><option value="">Aucun</option></select></label>
         ${champPJ()}
         <div class="actions"><button class="btn">Publier</button><button type="button" class="btn sec" data-annuler>Annuler</button></div>
       </form>`);
@@ -622,7 +647,7 @@ async function vueAnnonces(m) {
       const id = crypto.randomUUID();
       const pieces_jointes = await envoyerPJ(`annonces/${id}`, e.target.fichiers);
       try {
-        await q(sb.from('annonces').insert({ id, titre: d.titre.trim(), contenu: d.contenu.trim(), epinglee: !!d.epinglee, expire_le, pieces_jointes }));
+        await q(sb.from('annonces').insert({ id, titre: d.titre.trim(), contenu: d.contenu.trim(), epinglee: !!d.epinglee, expire_le, pieces_jointes, sondage_id: d.sondage_id || null }));
       } catch (err) { await supprimerPJ(pieces_jointes); throw err; }
       toast('Annonce publiée');
       rendre();
@@ -997,7 +1022,7 @@ async function vueSondages(m) {
     const miens = new Set(vs.filter(v => v.profil_id === S.profil.id).map(v => v.option_id));
     const visible = estBureau() || s.visibilite_resultats === 'immediate' || et === 'clos' || (s.visibilite_resultats === 'apres_vote' && miens.size > 0);
     const votants = new Set(vs.map(v => v.profil_id)).size;
-    return `<article class="sondage">
+    return `<article class="sondage" id="sondage-${esc(s.id)}">
       <h2>${esc(s.question)}</h2>
       ${s.description ? `<p>${escBr(s.description)}</p>` : ''}
       ${blocPJ(s.pieces_jointes, liens)}
@@ -1025,6 +1050,15 @@ async function vueSondages(m) {
     <section>${ouverts.length ? ouverts.map(carte).join('') : '<p class="vide">Aucun sondage en cours.</p>'}</section>
     ${avenir.length ? `<section><h2>Bientôt</h2>${avenir.map(carte).join('')}</section>` : ''}
     ${clos.length ? `<section><h2>Sondages clos</h2>${clos.map(carte).join('')}</section>` : ''}`;
+  if (S.sondageCible) {
+    const cible = m.querySelector(`#sondage-${CSS.escape(S.sondageCible)}`);
+    S.sondageCible = null;
+    if (cible) {
+      cible.classList.add('cible');
+      setTimeout(() => cible.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+      setTimeout(() => cible.classList.remove('cible'), 2500);
+    }
+  }
 
   m.onclick = e => {
     const b = e.target.closest('button');
