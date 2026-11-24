@@ -199,6 +199,10 @@ details summary { cursor: pointer; color: var(--doux); font-size: 15px; }
 .seance .heure { font: 700 17px var(--titre); }
 .seance.masque { opacity: .55; }
 .jour-bloc { margin-bottom: 18px; }
+.bascule { display: flex; background: var(--surface); border: 1px solid var(--trait); border-radius: 10px; padding: 4px; gap: 4px; margin-bottom: 20px; max-width: 420px; }
+.bascule button { flex: 1; border: 0; border-radius: 7px; background: transparent; color: var(--doux); font: 700 17px var(--titre); padding: 9px 6px; cursor: pointer; }
+.bascule button[aria-pressed="true"] { background: var(--route); color: #fff; }
+.seance .actions-bureau { display: inline-flex; margin-top: 2px; }
 
 /* Sondages */
 .sondage { background: var(--surface); border: 1px solid var(--trait); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
@@ -704,14 +708,40 @@ function couleurDiscipline(d) {
   return '';
 }
 
+const SECTIONS = { competition: 'Compétition', loisir: 'Loisir', commun: 'Les deux sections' };
+
+function formCreneau(c) {
+  const sel = (v, x) => v === x ? 'selected' : '';
+  return `<form class="formulaire" data-type="creneau" ${c ? `data-id="${esc(c.id)}"` : ''}>
+    <h2>${c ? 'Modifier le créneau' : 'Nouveau créneau'}</h2>
+    <label>Section<select name="section">
+      <option value="competition" ${sel(c?.section || S.section, 'competition')}>Compétition</option>
+      <option value="loisir" ${sel(c?.section || S.section, 'loisir')}>Loisir</option>
+      <option value="commun" ${sel(c?.section, 'commun')}>Les deux sections</option></select></label>
+    <label>Jour<select name="jour">${JOURS.map((j, i) => `<option value="${i + 1}" ${c?.jour === i + 1 ? 'selected' : ''}>${j}</option>`).join('')}</select></label>
+    <div class="deux"><label>Début<input type="time" name="heure_debut" required value="${esc(c?.heure_debut?.slice(0, 5))}"></label>
+      <label>Fin<input type="time" name="heure_fin" value="${esc(c?.heure_fin?.slice(0, 5))}"></label></div>
+    <label>Discipline<input name="discipline" required list="disciplines" maxlength="60" value="${esc(c?.discipline)}">
+      <datalist id="disciplines"><option>Natation</option><option>Vélo</option><option>Course à pied</option><option>Enchaînement</option><option>Préparation physique</option></datalist></label>
+    <label>Lieu<input name="lieu" maxlength="120" value="${esc(c?.lieu)}"></label>
+    <label>Encadrant<input name="encadrant" maxlength="80" value="${esc(c?.encadrant)}"></label>
+    <div class="deux"><label>Valable à partir du (facultatif)<input type="date" name="valide_du" value="${esc(c?.valide_du)}"></label>
+      <label>Jusqu'au (facultatif)<input type="date" name="valide_au" value="${esc(c?.valide_au)}"></label></div>
+    <div class="actions"><button class="btn">${c ? 'Enregistrer' : 'Ajouter le créneau'}</button><button type="button" class="btn sec" data-annuler>Annuler</button></div>
+  </form>`;
+}
+
 async function vueEntrainements(m) {
   const auj = ymd(new Date());
+  S.section = S.section || lire('section_entrainement') || 'competition';
   const [creneaux, modifs] = await Promise.all([
     q(sb.from('creneaux').select('*').order('jour').order('heure_debut')),
-    q(sb.from('modifs_entrainement').select('*, creneaux(jour, heure_debut, discipline)').gte('date', auj).order('date'))
+    q(sb.from('modifs_entrainement').select('*, creneaux(jour, heure_debut, discipline, section)').gte('date', auj).order('date'))
   ]);
   const enVigueur = c => c.actif && (!c.valide_du || c.valide_du <= auj) && (!c.valide_au || c.valide_au >= auj);
-  const visibles = creneaux.filter(c => estBureau() || enVigueur(c));
+  const dansSection = sec => sec === S.section || sec === 'commun' || !sec;
+  const visibles = creneaux.filter(c => dansSection(c.section) && (estBureau() || enVigueur(c)));
+  const modifsVisibles = modifs.filter(x => !x.creneaux || dansSection(x.creneaux.section));
   const libelleType = { annulation: 'Annulé', changement: 'Changement', info: 'Info' };
 
   let parJour = '';
@@ -721,11 +751,13 @@ async function vueEntrainements(m) {
     parJour += `<div class="jour-bloc"><h2>${JOURS[j - 1]}</h2>${duJour.map(c => `
       <div class="seance ${couleurDiscipline(c.discipline)} ${enVigueur(c) ? '' : 'masque'}">
         <div class="heure">${fmtHeure(c.heure_debut)}${c.heure_fin ? `<br><span class="sous petit">à ${fmtHeure(c.heure_fin)}</span>` : ''}</div>
-        <div><strong>${esc(c.discipline)}</strong>
+        <div><strong>${esc(c.discipline)}</strong>${c.section === 'commun' ? ' <span class="etiquette">Toutes sections</span>' : ''}
           ${c.lieu ? `<br>${esc(c.lieu)}` : ''}
           ${c.encadrant ? `<br><span class="sous">Avec ${esc(c.encadrant)}</span>` : ''}
           ${c.valide_du || c.valide_au ? `<br><span class="sous petit">${c.valide_du ? `Du ${esc(fmtCourt(c.valide_du))} ` : ''}${c.valide_au ? `jusqu'au ${esc(fmtCourt(c.valide_au))}` : ''}</span>` : ''}
-          ${estBureau() ? `<br>${enVigueur(c) ? '' : '<span class="sous petit">Masqué aux licenciés. </span>'}<button class="lien-btn danger" type="button" data-suppr-creneau="${esc(c.id)}">Supprimer</button>` : ''}
+          ${estBureau() ? `<br>${enVigueur(c) ? '' : '<span class="sous petit">Masqué aux licenciés. </span>'}<span class="actions-bureau">
+            <button class="lien-btn" type="button" data-modif-creneau="${esc(c.id)}">Modifier</button>
+            <button class="lien-btn danger" type="button" data-suppr-creneau="${esc(c.id)}">Supprimer</button></span>` : ''}
         </div>
       </div>`).join('')}</div>`;
   }
@@ -734,37 +766,31 @@ async function vueEntrainements(m) {
     <div class="tete"><h1>Entraînements</h1>
       ${estBureau() ? `<div class="actions"><button class="btn" type="button" data-action="creneau">Ajouter un créneau</button>
         <button class="btn sec" type="button" data-action="modif">Signaler un changement</button></div>` : ''}</div>
+    <div class="bascule" role="group" aria-label="Section">
+      ${['competition', 'loisir'].map(s => `<button type="button" data-section="${s}" aria-pressed="${S.section === s}">${SECTIONS[s]}</button>`).join('')}
+    </div>
     <div id="zone-form"></div>
-    ${modifs.length ? `<section><h2>Changements à venir</h2>${modifs.map(x => `
+    ${modifsVisibles.length ? `<section><h2>Changements à venir</h2>${modifsVisibles.map(x => `
       <div class="alerte"><span class="etiquette ${x.type === 'annulation' ? 'piste' : 'eau'}">${libelleType[x.type]}</span>
         <strong>${esc(majuscule(fmtJour(x.date)))}</strong>${x.creneaux ? `, ${esc(x.creneaux.discipline)} de ${fmtHeure(x.creneaux.heure_debut)}` : ''}
         <p>${escBr(x.message)}</p>
         ${estBureau() ? `<button class="lien-btn danger" type="button" data-suppr-modif="${esc(x.id)}">Supprimer</button>` : ''}
       </div>`).join('')}</section>` : ''}
-    <section>${parJour || '<p class="vide">Les horaires d\'entraînement ne sont pas encore en ligne.</p>'}</section>`;
+    <section>${parJour || `<p class="vide">Les horaires de la section ${SECTIONS[S.section].toLowerCase()} ne sont pas encore en ligne.</p>`}</section>`;
 
   m.onclick = e => {
     const b = e.target.closest('button');
     if (!b) return;
+    if (b.dataset.section) { S.section = b.dataset.section; ecrire('section_entrainement', S.section); rendre(); return; }
     if (b.hasAttribute('data-annuler')) { $('#zone-form', m).innerHTML = ''; return; }
-    if (b.dataset.action === 'creneau') zoneForm(m, `
-      <form class="formulaire" data-type="creneau">
-        <h2>Nouveau créneau</h2>
-        <label>Jour<select name="jour">${JOURS.map((j, i) => `<option value="${i + 1}">${j}</option>`).join('')}</select></label>
-        <div class="deux"><label>Début<input type="time" name="heure_debut" required></label><label>Fin<input type="time" name="heure_fin"></label></div>
-        <label>Discipline<input name="discipline" required list="disciplines" maxlength="60">
-          <datalist id="disciplines"><option>Natation</option><option>Vélo</option><option>Course à pied</option><option>Enchaînement</option><option>Préparation physique</option></datalist></label>
-        <label>Lieu<input name="lieu" maxlength="120"></label>
-        <label>Encadrant<input name="encadrant" maxlength="80"></label>
-        <div class="deux"><label>Valable à partir du (facultatif)<input type="date" name="valide_du"></label><label>Jusqu'au (facultatif)<input type="date" name="valide_au"></label></div>
-        <div class="actions"><button class="btn">Ajouter le créneau</button><button type="button" class="btn sec" data-annuler>Annuler</button></div>
-      </form>`);
+    if (b.dataset.action === 'creneau') zoneForm(m, formCreneau(null));
+    if (b.dataset.modifCreneau) zoneForm(m, formCreneau(creneaux.find(c => c.id === b.dataset.modifCreneau)));
     if (b.dataset.action === 'modif') zoneForm(m, `
       <form class="formulaire" data-type="modif">
         <h2>Signaler un changement</h2>
         <label>Date<input type="date" name="date" required value="${auj}"></label>
         <label>Créneau concerné<select name="creneau_id"><option value="">Tout le club</option>
-          ${creneaux.filter(enVigueur).map(c => `<option value="${esc(c.id)}">${JOURS[c.jour - 1]} ${fmtHeure(c.heure_debut)}, ${esc(c.discipline)}</option>`).join('')}</select></label>
+          ${creneaux.filter(enVigueur).map(c => `<option value="${esc(c.id)}">${JOURS[c.jour - 1]} ${fmtHeure(c.heure_debut)}, ${esc(c.discipline)} (${SECTIONS[c.section] || SECTIONS.commun})</option>`).join('')}</select></label>
         <label>Type<select name="type"><option value="annulation">Annulation</option><option value="changement">Changement (lieu, horaire…)</option><option value="info">Information</option></select></label>
         <label>Message<textarea name="message" required rows="3"></textarea></label>
         <div class="actions"><button class="btn">Publier le changement</button><button type="button" class="btn sec" data-annuler>Annuler</button></div>
@@ -779,12 +805,16 @@ async function vueEntrainements(m) {
     const f = e.target, d = donnees(f);
     occupe(e.submitter, async () => {
       if (f.dataset.type === 'creneau') {
-        await q(sb.from('creneaux').insert({
-          jour: Number(d.jour), heure_debut: d.heure_debut, heure_fin: d.heure_fin || null,
+        if (d.valide_du && d.valide_au && d.valide_au < d.valide_du) throw new Error('La date de fin de validité doit être après la date de début.');
+        const ligne = {
+          section: d.section, jour: Number(d.jour), heure_debut: d.heure_debut, heure_fin: d.heure_fin || null,
           discipline: d.discipline.trim(), lieu: d.lieu.trim() || null, encadrant: d.encadrant.trim() || null,
           valide_du: d.valide_du || null, valide_au: d.valide_au || null
-        }));
-        toast('Créneau ajouté');
+        };
+        if (f.dataset.id) await q(sb.from('creneaux').update(ligne).eq('id', f.dataset.id));
+        else await q(sb.from('creneaux').insert(ligne));
+        if (d.section !== 'commun') { S.section = d.section; ecrire('section_entrainement', S.section); }
+        toast(f.dataset.id ? 'Créneau modifié' : 'Créneau ajouté');
       } else {
         await q(sb.from('modifs_entrainement').insert({ date: d.date, creneau_id: d.creneau_id || null, type: d.type, message: d.message.trim() }));
         toast('Changement publié');
