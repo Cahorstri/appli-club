@@ -105,6 +105,8 @@ a { color: var(--eau); }
 .btn:disabled { opacity: .5; cursor: wait; }
 .lien-btn { background: none; border: 0; padding: 0; color: var(--eau); font: inherit; cursor: pointer; text-decoration: underline; }
 .lien-btn.danger { color: var(--piste); }
+.lien-btn.wa { color: #128C7E; font-weight: 600; }
+.actions-bureau { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible {
   outline: 3px solid var(--eau); outline-offset: 2px;
 }
@@ -273,6 +275,9 @@ const JOURS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dim
 const lire = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const ecrire = (k, v) => { try { localStorage.setItem(k, v); } catch { } };
 const donnees = f => Object.fromEntries(new FormData(f).entries());
+const adresseAppli = () => location.origin + location.pathname.replace(/index\.html$/, '');
+const tronquer = (t, n) => t.length > n ? t.slice(0, n).trimEnd() + '…' : t;
+const lienWhatsApp = texte => `<a class="lien-btn wa" href="https://wa.me/?text=${encodeURIComponent(texte)}" target="_blank" rel="noopener noreferrer">Partager sur WhatsApp</a>`;
 
 async function q(requete) {
   const { data, error } = await requete;
@@ -326,7 +331,16 @@ async function chargerProfil() {
 }
 
 /* ---------- Rendu général ---------- */
-function aller(onglet) { S.onglet = onglet; rendre(); window.scrollTo(0, 0); }
+function aller(onglet) {
+  S.onglet = onglet;
+  history.replaceState(null, '', onglet === 'accueil' ? location.pathname : '#' + onglet);
+  rendre(); window.scrollTo(0, 0);
+}
+const ONGLETS_LIENS = ['annonces', 'entrainements', 'sondages', 'courses', 'club'];
+function ongletDepuisAdresse() {
+  const o = location.hash.slice(1);
+  return ONGLETS_LIENS.includes(o) ? o : null;
+}
 
 async function rendre() {
   document.querySelectorAll('nav.onglets button').forEach(b => {
@@ -479,7 +493,8 @@ async function vueAnnonces(m) {
         </div>
         <h2>${esc(a.titre)}</h2>
         <p>${escBr(a.contenu)}</p>
-        ${estBureau() ? `<button class="lien-btn danger" type="button" data-suppr="${esc(a.id)}">Supprimer</button>` : ''}
+        ${estBureau() ? `<p class="actions-bureau">${lienWhatsApp(`📢 Cahors Triathlon : ${a.titre}\n\n${tronquer(a.contenu, 300)}\n\nÀ lire dans l'appli : ${adresseAppli()}#annonces`)}
+          <button class="lien-btn danger" type="button" data-suppr="${esc(a.id)}">Supprimer</button></p>` : ''}
       </article>`;
     }).join('')}</div>`;
 
@@ -820,7 +835,8 @@ async function vueSondages(m) {
       }).join('')}
       <p class="sous petit" style="margin-top:10px">${visible ? `${votants} votant${votants > 1 ? 's' : ''}.` : s.visibilite_resultats === 'cloture' ? 'Résultats visibles à la clôture.' : 'Votez pour voir les résultats.'}
         ${et === 'ouvert' && miens.size ? ' Vous pouvez modifier votre choix jusqu\'à la clôture.' : ''}</p>
-      ${estBureau() ? `<button class="lien-btn danger" type="button" data-suppr="${esc(s.id)}">Supprimer le sondage</button>` : ''}
+      ${estBureau() ? `<p class="actions-bureau">${et !== 'clos' ? lienWhatsApp(`🗳️ Nouveau sondage Cahors Triathlon : ${s.question}\nRéponse avant le ${fmtDateHeure(s.cloture_le)}.\n\nPour voter : ${adresseAppli()}#sondages`) : ''}
+        <button class="lien-btn danger" type="button" data-suppr="${esc(s.id)}">Supprimer le sondage</button></p>` : ''}
     </article>`;
   };
 
@@ -1201,6 +1217,8 @@ async function demarrer() {
   const { data } = await sb.auth.getSession();
   S.session = data.session;
   await chargerProfil();
+  S.onglet = ongletDepuisAdresse() || 'accueil';
+  window.addEventListener('hashchange', () => { const o = ongletDepuisAdresse(); if (o && o !== S.onglet) { S.onglet = o; rendre(); } });
   sb.auth.onAuthStateChange((evenement, session) => {
     S.session = session;
     if (evenement === 'SIGNED_IN' || evenement === 'SIGNED_OUT') {
