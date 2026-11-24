@@ -108,6 +108,8 @@ a { color: var(--eau); }
 .lien-btn.wa { color: #128C7E; font-weight: 600; }
 .actions-bureau { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; }
 .pj { margin: 10px 0 4px; display: grid; gap: 8px; }
+.pj-existantes { border: 1px solid var(--trait); border-radius: 8px; padding: 10px 12px; display: grid; gap: 8px; margin: 0; }
+.pj-existantes legend { font-weight: 500; font-size: 15px; padding: 0 4px; }
 .btn-sondage { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; margin: 10px 0 4px; padding: 12px 14px;
   border: 1.5px solid var(--eau); border-radius: 10px; background: var(--eau-pale); color: var(--encre); font: inherit; cursor: pointer; }
 .btn-sondage svg { width: 24px; height: 24px; flex: none; fill: none; stroke: var(--eau); stroke-width: 2; stroke-linecap: round; }
@@ -330,9 +332,9 @@ async function reduireImage(f) {
   } catch { return f; }
 }
 
-async function envoyerPJ(dossier, input) {
+async function envoyerPJ(dossier, input, dejaPresentes = 0) {
   const fichiers = [...(input?.files || [])];
-  if (fichiers.length > 5) throw new Error('5 pièces jointes au maximum.');
+  if (fichiers.length + dejaPresentes > 5) throw new Error('5 pièces jointes au maximum par publication.');
   const envoyes = [];
   try {
     for (const brut of fichiers) {
@@ -601,6 +603,7 @@ async function vueAnnonces(m) {
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20v-8M12 20V5M19 20v-5"/></svg>
           <span>${new Date(s.cloture_le) > now ? 'Répondre au sondage' : 'Voir le résultat du sondage'}<strong>${esc(s.question)}</strong></span></button>`)(sondagesLies[a.sondage_id]) : ''}
         ${estBureau() ? `<p class="actions-bureau">${lienWhatsApp(`📢 Cahors Triathlon : ${a.titre}\n\n${tronquer(a.contenu, 300)}\n\nÀ lire dans l'appli : ${adresseAppli()}#annonces`)}
+          <button class="lien-btn" type="button" data-modifier="${esc(a.id)}">Modifier</button>
           <button class="lien-btn danger" type="button" data-suppr="${esc(a.id)}">Supprimer</button></p>` : ''}
       </article>`;
     }).join('')}</div>`;
@@ -609,26 +612,33 @@ async function vueAnnonces(m) {
     const b = e.target.closest('button');
     if (!b) return;
     if (b.dataset.sondageLie) { S.sondageCible = b.dataset.sondageLie; aller('sondages'); return; }
-    if (b.dataset.action === 'nouvelle') setTimeout(async () => {
+    if (b.dataset.action === 'nouvelle' || b.dataset.modifier) {
+      const a = b.dataset.modifier ? annonces.find(x => x.id === b.dataset.modifier) : null;
+      const pjs = a?.pieces_jointes || [];
+      zoneForm(m, `
+      <form class="formulaire" id="f-annonce" ${a ? `data-id="${esc(a.id)}"` : ''}>
+        <h2>${a ? 'Modifier l\'annonce' : 'Nouvelle annonce'}</h2>
+        <label>Titre<input name="titre" required maxlength="120" value="${esc(a?.titre)}"></label>
+        <label>Texte<textarea name="contenu" required rows="5">${esc(a?.contenu)}</textarea></label>
+        <label class="case"><input type="checkbox" name="epinglee" ${a?.epinglee ? 'checked' : ''}> Épingler en haut de la liste</label>
+        <label>Retirer automatiquement après le (facultatif)<input type="date" name="expire" value="${a?.expire_le ? ymd(new Date(a.expire_le)) : ''}"></label>
+        <label>Sondage lié (facultatif)<select name="sondage_id"><option value="">Aucun</option></select></label>
+        ${pjs.length ? `<fieldset class="pj-existantes"><legend>Pièces jointes actuelles : cochez celles à retirer</legend>
+          ${pjs.map((p, i) => `<label class="case"><input type="checkbox" name="retirer_${i}"> ${esc(p.nom)} <span class="sous petit">${tailleLisible(p.taille)}</span></label>`).join('')}</fieldset>` : ''}
+        ${champPJ()}
+        <div class="actions"><button class="btn">${a ? 'Enregistrer' : 'Publier'}</button><button type="button" class="btn sec" data-annuler>Annuler</button></div>
+      </form>`);
+      // Liste des sondages ouverts (plus le sondage déjà lié, même clos)
       const sel = m.querySelector('select[name="sondage_id"]');
-      if (!sel) return;
       try {
         const ouverts = await q(sb.from('sondages').select('id, question').gt('cloture_le', new Date().toISOString()).order('cloture_le'));
-        sel.insertAdjacentHTML('beforeend', ouverts.map(s => `<option value="${esc(s.id)}">${esc(s.question)}</option>`).join(''));
+        const actuel = a?.sondage_id && sondagesLies[a.sondage_id];
+        if (actuel && !ouverts.some(s => s.id === actuel.id)) ouverts.unshift(actuel);
+        sel.insertAdjacentHTML('beforeend', ouverts.map(s => `<option value="${esc(s.id)}" ${s.id === a?.sondage_id ? 'selected' : ''}>${esc(s.question)}</option>`).join(''));
         if (!ouverts.length) sel.closest('label').insertAdjacentHTML('beforeend', '<span class="sous petit">Aucun sondage en cours pour le moment.</span>');
       } catch { }
-    }, 0);
-    if (b.dataset.action === 'nouvelle') zoneForm(m, `
-      <form class="formulaire" id="f-annonce">
-        <h2>Nouvelle annonce</h2>
-        <label>Titre<input name="titre" required maxlength="120"></label>
-        <label>Texte<textarea name="contenu" required rows="5"></textarea></label>
-        <label class="case"><input type="checkbox" name="epinglee"> Épingler en haut de la liste</label>
-        <label>Retirer automatiquement après le (facultatif)<input type="date" name="expire"></label>
-        <label>Sondage lié (facultatif)<select name="sondage_id"><option value="">Aucun</option></select></label>
-        ${champPJ()}
-        <div class="actions"><button class="btn">Publier</button><button type="button" class="btn sec" data-annuler>Annuler</button></div>
-      </form>`);
+      return;
+    }
     if (b.hasAttribute('data-annuler')) $('#zone-form', m).innerHTML = '';
     if (b.dataset.suppr && confirm('Supprimer définitivement cette annonce ?'))
       occupe(b, async () => {
@@ -644,12 +654,26 @@ async function vueAnnonces(m) {
     occupe(e.submitter, async () => {
       let expire_le = null;
       if (d.expire) { const j = parseYmd(d.expire); j.setHours(23, 59, 59); expire_le = j.toISOString(); }
-      const id = crypto.randomUUID();
-      const pieces_jointes = await envoyerPJ(`annonces/${id}`, e.target.fichiers);
-      try {
-        await q(sb.from('annonces').insert({ id, titre: d.titre.trim(), contenu: d.contenu.trim(), epinglee: !!d.epinglee, expire_le, pieces_jointes, sondage_id: d.sondage_id || null }));
-      } catch (err) { await supprimerPJ(pieces_jointes); throw err; }
-      toast('Annonce publiée');
+      const champs = { titre: d.titre.trim(), contenu: d.contenu.trim(), epinglee: !!d.epinglee, expire_le, sondage_id: d.sondage_id || null };
+      const existante = e.target.dataset.id ? annonces.find(x => x.id === e.target.dataset.id) : null;
+      if (existante) {
+        const avant = existante.pieces_jointes || [];
+        const retirees = avant.filter((_, i) => d[`retirer_${i}`]);
+        const gardees = avant.filter((_, i) => !d[`retirer_${i}`]);
+        const ajoutees = await envoyerPJ(`annonces/${existante.id}`, e.target.fichiers, gardees.length);
+        try {
+          await q(sb.from('annonces').update({ ...champs, pieces_jointes: [...gardees, ...ajoutees] }).eq('id', existante.id));
+        } catch (err) { await supprimerPJ(ajoutees); throw err; }
+        await supprimerPJ(retirees);
+        toast('Annonce modifiée');
+      } else {
+        const id = crypto.randomUUID();
+        const pieces_jointes = await envoyerPJ(`annonces/${id}`, e.target.fichiers);
+        try {
+          await q(sb.from('annonces').insert({ id, ...champs, pieces_jointes }));
+        } catch (err) { await supprimerPJ(pieces_jointes); throw err; }
+        toast('Annonce publiée');
+      }
       rendre();
     });
   };
