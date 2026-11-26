@@ -108,6 +108,8 @@ a { color: var(--eau); }
 .lien-btn.wa { color: #128C7E; font-weight: 600; }
 .actions-bureau { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; }
 .pj { margin: 10px 0 4px; display: grid; gap: 8px; }
+.licence-apercu { width: 100%; max-height: 320px; object-fit: contain; border-radius: 8px; background: var(--fond); border: 1px solid var(--trait); display: block; }
+a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 .pj-existantes { border: 1px solid var(--trait); border-radius: 8px; padding: 10px 12px; display: grid; gap: 8px; margin: 0; }
 .pj-existantes legend { font-weight: 500; font-size: 15px; padding: 0 4px; }
 .btn-sondage { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; margin: 10px 0 4px; padding: 12px 14px;
@@ -1277,7 +1279,7 @@ function texteConfidentialite(emailClub) {
   return `<details id="confidentialite" class="rgpd">
     <summary><h2>Confidentialité et données personnelles</h2></summary>
     <p><strong>Responsable du traitement.</strong> L'association Cahors Triathlon, représentée par son président. Contact : ${contact}.</p>
-    <p><strong>Données collectées.</strong> Votre adresse e-mail, vos prénom et nom, votre numéro de licence (facultatif), ainsi que votre activité dans l'appli : courses ajoutées, participations aux courses, votes aux sondages et date de prise de connaissance du règlement intérieur.</p>
+    <p><strong>Données collectées.</strong> Votre adresse e-mail, vos prénom et nom, votre numéro de licence (facultatif), ainsi que votre activité dans l'appli : courses ajoutées, participations aux courses, votes aux sondages et date de prise de connaissance du règlement intérieur. Si vous choisissez de la déposer, le document de votre licence est également conservé ; il n'est visible que par vous.</p>
     <p><strong>Pourquoi.</strong> Faire fonctionner l'appli et organiser la vie du club : informations, entraînements, déplacements en course, décisions collectives. Ce traitement repose sur l'intérêt légitime du club à communiquer avec ses adhérents. Aucune donnée n'est vendue ni utilisée à des fins publicitaires.</p>
     <p><strong>Qui voit quoi.</strong> Les licenciés dont le compte est validé voient les prénoms et noms des autres licenciés, leurs participations aux courses et leurs votes aux sondages, qui sont nominatifs. Votre adresse e-mail n'est visible par aucun autre licencié. Les membres du bureau voient en plus les numéros de licence et valident les comptes.</p>
     <p><strong>Prestataires.</strong> Supabase héberge la base de données sur des serveurs situés dans l'Union européenne, Brevo (société française) envoie les e-mails de connexion, et GitHub héberge les fichiers de l'appli sans accès à vos données. Ces prestataires agissent pour le compte du club.</p>
@@ -1291,16 +1293,50 @@ function texteConfidentialite(emailClub) {
 /* =====================================================================
    COMPTE : connexion par code, profil
    ===================================================================== */
+const BUCKET_LICENCE = 'licences';
+
 async function vueProfil(m) {
   if (!S.session) return vueConnexion(m);
   const p = S.profil || {};
+  const uid = S.session.user.id;
   const statut = { en_attente: 'En attente de validation par le bureau', valide: 'Compte validé', desactive: 'Compte désactivé' }[p.statut] || '';
+
+  // Licence déposée par le licencié (un seul fichier, dans son dossier personnel)
+  let licence = null, lienLicence = null;
+  if (estValide()) {
+    const { data } = await sb.storage.from(BUCKET_LICENCE).list(uid, { limit: 10, sortBy: { column: 'created_at', order: 'desc' } });
+    licence = (data || []).find(x => x.name && !x.name.startsWith('.')) || null;
+    if (licence) {
+      const r = await sb.storage.from(BUCKET_LICENCE).createSignedUrl(`${uid}/${licence.name}`, 3600);
+      lienLicence = r.data?.signedUrl || null;
+    }
+  }
+  const estImage = licence && /\.(jpe?g|png|webp|gif)$/i.test(licence.name);
+  const champLicence = libelle => `<label>${libelle}
+    <input type="file" name="licence" accept="image/*,.pdf" required></label>
+    <div class="actions"><button class="btn" data-action="deposer">Enregistrer</button></div>`;
+
   m.innerHTML = `
     <div class="tete"><h1>Mon compte</h1></div>
     <p><span class="etiquette ${p.statut === 'valide' ? 'eau' : 'piste'}">${esc(statut)}</span>${p.role === 'bureau' ? '<span class="etiquette">Bureau</span>' : ''}</p>
     <p class="sous">${esc(S.session.user.email)}</p>
     ${estBureau() ? '<p><button class="btn" type="button" data-action="gestion">Gérer les membres</button></p>' : ''}
-    <form class="formulaire">
+    ${estValide() ? `<form class="formulaire" data-type="licence">
+      <h2>Ma licence</h2>
+      ${licence ? `
+        ${estImage && lienLicence ? `<a href="${esc(lienLicence)}" target="_blank" rel="noopener"><img class="licence-apercu" src="${esc(lienLicence)}" alt="Ma licence"></a>` : ''}
+        <p class="sous petit">Déposée le ${esc(new Date(licence.created_at).toLocaleDateString('fr-FR'))}${licence.metadata?.size ? `, ${tailleLisible(licence.metadata.size)}` : ''}.</p>
+        <div class="actions">
+          ${lienLicence ? `<a class="btn ok" href="${esc(lienLicence)}" target="_blank" rel="noopener">Afficher ma licence</a>` : ''}
+          <button class="btn sec" type="button" data-action="remplacer">Remplacer</button>
+          <button class="btn sec" type="button" data-action="supprimer-licence">Supprimer</button>
+        </div>
+        <div id="zone-licence" hidden>${champLicence('Nouveau fichier (PDF ou photo)')}</div>`
+      : `<p>Déposez votre licence pour la retrouver facilement, par exemple le jour d'une course. Elle n'est visible que par vous.</p>
+        ${champLicence('Fichier de la licence (PDF ou photo)')}`}
+      <p class="sous petit">Ne déposez ici que votre licence, jamais de certificat médical.</p>
+    </form>` : ''}
+    <form class="formulaire" data-type="infos">
       <h2>Mes informations</h2>
       <div class="deux"><label>Prénom<input name="prenom" required maxlength="60" value="${esc(p.prenom)}"></label>
         <label>Nom<input name="nom" required maxlength="60" value="${esc(p.nom)}"></label></div>
@@ -1308,17 +1344,38 @@ async function vueProfil(m) {
       <div class="actions"><button class="btn">Enregistrer</button></div>
     </form>
     <button class="btn sec" type="button" data-action="deconnexion">Se déconnecter</button>`;
+
   m.onclick = e => {
     const b = e.target.closest('button');
     if (!b) return;
     if (b.dataset.action === 'gestion') aller('gestion');
     if (b.dataset.action === 'deconnexion') occupe(b, async () => { await sb.auth.signOut(); S.onglet = 'accueil'; });
+    if (b.dataset.action === 'remplacer') { const z = $('#zone-licence', m); z.hidden = !z.hidden; }
+    if (b.dataset.action === 'supprimer-licence' && confirm('Supprimer votre licence de l\'appli ?'))
+      occupe(b, async () => {
+        await q(sb.storage.from(BUCKET_LICENCE).remove([`${uid}/${licence.name}`]));
+        toast('Licence supprimée'); rendre();
+      });
   };
   m.onsubmit = e => {
     e.preventDefault();
-    const d = donnees(e.target);
+    const f = e.target;
+    if (f.dataset.type === 'licence') {
+      return occupe(e.submitter, async () => {
+        const brut = f.licence.files[0];
+        if (!brut) throw new Error('Choisissez un fichier.');
+        if (!/\.(pdf|jpe?g|png|webp|heic|heif)$/i.test(brut.name)) throw new Error('La licence doit être un PDF ou une photo.');
+        const fichier = await reduireImage(brut);
+        if (fichier.size > 10 * 1048576) throw new Error('Le fichier dépasse 10 Mo.');
+        const ext = (fichier.name.match(/\.(\w+)$/) || [, 'pdf'])[1].toLowerCase();
+        await q(sb.storage.from(BUCKET_LICENCE).upload(`${uid}/licence-${Date.now()}.${ext}`, fichier, { contentType: fichier.type || 'application/octet-stream' }));
+        if (licence) await sb.storage.from(BUCKET_LICENCE).remove([`${uid}/${licence.name}`]);
+        toast('Licence enregistrée'); rendre();
+      });
+    }
+    const d = donnees(f);
     occupe(e.submitter, async () => {
-      await q(sb.from('profils').update({ prenom: d.prenom.trim(), nom: d.nom.trim(), numero_licence: d.numero_licence.trim() || null }).eq('id', S.session.user.id));
+      await q(sb.from('profils').update({ prenom: d.prenom.trim(), nom: d.nom.trim(), numero_licence: d.numero_licence.trim() || null }).eq('id', uid));
       await chargerProfil();
       toast('Informations enregistrées');
       rendre();
