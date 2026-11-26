@@ -256,6 +256,7 @@ details summary { cursor: pointer; color: var(--doux); font-size: 15px; }
 .membre { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid var(--trait); }
 .membre .actions { gap: 6px; }
 .membre .btn { min-height: 36px; padding: 5px 12px; font-size: 14px; }
+.choix-role { width: auto; min-height: 36px; padding: 4px 8px; font-size: 14px; }
 section + section { margin-top: 28px; }
 
 #toast {
@@ -436,6 +437,8 @@ const S = {
 };
 const estValide = () => S.profil?.statut === 'valide';
 const estBureau = () => estValide() && S.profil.role === 'bureau';
+// Coachs et bureau peuvent gérer les entraînements
+const estEncadrant = () => estValide() && ['coach', 'bureau'].includes(S.profil.role);
 
 async function chargerProfil() {
   S.profil = null;
@@ -970,7 +973,7 @@ async function vueEntrainements(m) {
   ]);
   const enVigueur = c => c.actif && (!c.valide_du || c.valide_du <= auj) && (!c.valide_au || c.valide_au >= auj);
   const dansSection = sec => sec === S.section || sec === 'commun' || !sec;
-  const visibles = creneaux.filter(c => dansSection(c.section) && (estBureau() || enVigueur(c)));
+  const visibles = creneaux.filter(c => dansSection(c.section) && (estEncadrant() || enVigueur(c)));
   const modifsVisibles = modifs.filter(x => !x.creneaux || dansSection(x.creneaux.section));
   const libelleType = { annulation: 'Annulé', changement: 'Changement', info: 'Info' };
 
@@ -985,7 +988,7 @@ async function vueEntrainements(m) {
           ${c.lieu ? `<br>${esc(c.lieu)}` : ''}
           ${c.encadrant ? `<br><span class="sous">Avec ${esc(c.encadrant)}</span>` : ''}
           ${c.valide_du || c.valide_au ? `<br><span class="sous petit">${c.valide_du ? `Du ${esc(fmtCourt(c.valide_du))} ` : ''}${c.valide_au ? `jusqu'au ${esc(fmtCourt(c.valide_au))}` : ''}</span>` : ''}
-          ${estBureau() ? `<br>${enVigueur(c) ? '' : '<span class="sous petit">Masqué aux licenciés. </span>'}<span class="actions-bureau">
+          ${estEncadrant() ? `<br>${enVigueur(c) ? '' : '<span class="sous petit">Masqué aux licenciés. </span>'}<span class="actions-bureau">
             <button class="lien-btn" type="button" data-modif-creneau="${esc(c.id)}">Modifier</button>
             <button class="lien-btn danger" type="button" data-suppr-creneau="${esc(c.id)}">Supprimer</button></span>` : ''}
         </div>
@@ -994,7 +997,7 @@ async function vueEntrainements(m) {
 
   m.innerHTML = `
     <div class="tete"><h1>Entraînements</h1>
-      ${estBureau() ? `<div class="actions"><button class="btn" type="button" data-action="creneau">Ajouter un créneau</button>
+      ${estEncadrant() ? `<div class="actions"><button class="btn" type="button" data-action="creneau">Ajouter un créneau</button>
         <button class="btn sec" type="button" data-action="modif">Signaler un changement</button></div>` : ''}</div>
     <div class="bascule" role="group" aria-label="Section">
       ${['competition', 'loisir'].map(s => `<button type="button" data-section="${s}" aria-pressed="${S.section === s}">${SECTIONS[s]}</button>`).join('')}
@@ -1004,7 +1007,7 @@ async function vueEntrainements(m) {
       <div class="alerte"><span class="etiquette ${x.type === 'annulation' ? 'piste' : 'eau'}">${libelleType[x.type]}</span>
         <strong>${esc(majuscule(fmtJour(x.date)))}</strong>${x.creneaux ? `, ${esc(x.creneaux.discipline)} de ${fmtHeure(x.creneaux.heure_debut)}` : ''}
         <p>${escBr(x.message)}</p>
-        ${estBureau() ? `<button class="lien-btn danger" type="button" data-suppr-modif="${esc(x.id)}">Supprimer</button>` : ''}
+        ${estEncadrant() ? `<button class="lien-btn danger" type="button" data-suppr-modif="${esc(x.id)}">Supprimer</button>` : ''}
       </div>`).join('')}</section>` : ''}
     <section>${parJour || `<p class="vide">Les horaires de la section ${SECTIONS[S.section].toLowerCase()} ne sont pas encore en ligne.</p>`}</section>`;
 
@@ -1397,7 +1400,7 @@ async function vueProfil(m) {
 
   m.innerHTML = `
     <div class="tete"><h1>Mon compte</h1></div>
-    <p><span class="etiquette ${p.statut === 'valide' ? 'eau' : 'piste'}">${esc(statut)}</span>${p.role === 'bureau' ? '<span class="etiquette">Bureau</span>' : ''}</p>
+    <p><span class="etiquette ${p.statut === 'valide' ? 'eau' : 'piste'}">${esc(statut)}</span>${p.role === 'bureau' ? '<span class="etiquette">Bureau</span>' : p.role === 'coach' ? '<span class="etiquette eau">Coach</span>' : ''}</p>
     <p class="sous">${esc(S.session.user.email)}</p>
     ${estBureau() ? '<p><button class="btn" type="button" data-action="gestion">Gérer les membres</button></p>' : ''}
     ${estValide() ? `<form class="formulaire" data-type="licence">
@@ -1540,7 +1543,7 @@ async function vueGestion(m) {
   const actifs = membres.filter(p => p.statut === 'valide');
   const inactifs = membres.filter(p => p.statut === 'desactive');
   const nom = p => esc(`${p.prenom} ${p.nom}`.trim() || 'Nom non renseigné');
-  const ligne = (p, boutons) => `<div class="membre"><div><strong>${nom(p)}</strong>${p.role === 'bureau' ? ' <span class="etiquette">Bureau</span>' : ''}
+  const ligne = (p, boutons) => `<div class="membre"><div><strong>${nom(p)}</strong> ${p.role === 'bureau' ? '<span class="etiquette">Bureau</span>' : p.role === 'coach' ? '<span class="etiquette eau">Coach</span>' : ''}
       <br><span class="sous petit">${p.numero_licence ? `Licence ${esc(p.numero_licence)}. ` : 'Licence non renseignée. '}Inscrit le ${esc(new Date(p.created_at).toLocaleDateString('fr-FR'))}.</span></div>
       <div class="actions">${boutons}</div></div>`;
 
@@ -1553,7 +1556,9 @@ async function vueGestion(m) {
     </section>
     <section><h2>Licenciés actifs (${actifs.length})</h2>
       ${actifs.map(p => ligne(p, p.id === S.profil.id ? '<span class="sous petit">Vous</span>' : `
-        <button class="btn sec" type="button" data-role="${p.role === 'bureau' ? 'licencie' : 'bureau'}" data-id="${esc(p.id)}">${p.role === 'bureau' ? 'Retirer du bureau' : 'Nommer au bureau'}</button>
+        <select class="choix-role" data-id="${esc(p.id)}" aria-label="Rôle de ${nom(p)}">
+          ${[['licencie', 'Licencié'], ['coach', 'Coach'], ['bureau', 'Bureau']].map(([v, l]) => `<option value="${v}" ${p.role === v ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
         <button class="btn sec" type="button" data-statut="desactive" data-id="${esc(p.id)}">Désactiver</button>`)).join('')}
     </section>
     ${inactifs.length ? `<section><h2>Comptes désactivés ou refusés</h2>
@@ -1571,13 +1576,17 @@ async function vueGestion(m) {
         rendre();
       });
     }
-    if (b.dataset.role) {
-      if (!confirm(b.dataset.role === 'bureau' ? 'Donner les droits du bureau à cette personne ?' : 'Retirer les droits du bureau à cette personne ?')) return;
-      occupe(b, async () => {
-        await q(sb.from('profils').update({ role: b.dataset.role }).eq('id', b.dataset.id));
-        toast('Rôle modifié'); rendre();
-      });
-    }
+  };
+  m.onchange = e => {
+    const s = e.target.closest('select.choix-role');
+    if (!s) return;
+    const libelles = { licencie: 'licencié (aucun droit particulier)', coach: 'coach (gestion des entraînements)', bureau: 'membre du bureau (tous les droits)' };
+    const avant = membres.find(x => x.id === s.dataset.id)?.role;
+    if (!confirm(`Passer cette personne en ${libelles[s.value]} ?`)) { s.value = avant; return; }
+    occupe(null, async () => {
+      await q(sb.from('profils').update({ role: s.value }).eq('id', s.dataset.id));
+      toast('Rôle modifié'); rendre();
+    });
   };
 }
 
