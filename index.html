@@ -170,7 +170,8 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--eau); }
 .calendrier { touch-action: pan-y; overflow: hidden; }
 .mois .nav-mois { display: flex; gap: 6px; }
 .mois .nav-mois button { width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--trait); background: var(--surface); color: var(--encre); font-size: 20px; cursor: pointer; }
-.cal-tete, .cal-grille { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; }
+.cal-tete, .cal-grille { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; text-align: center; }
+.jour { min-width: 0; }
 .cal-tete span { font: 600 13px var(--titre); color: var(--doux); padding-bottom: 4px; }
 .jour {
   aspect-ratio: 1 / 1; border: 0; border-radius: 10px; background: var(--surface); color: var(--encre);
@@ -179,7 +180,15 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--eau); }
 .jour.auj span { color: var(--eau); text-decoration: underline; text-underline-offset: 3px; }
 .jour.sel { background: var(--route); color: #fff; }
 .jour.sel span { color: #fff; }
-.jour .pastille { position: absolute; bottom: 14%; width: 7px; height: 7px; border-radius: 50%; background: var(--piste); }
+.jour .pastilles { position: absolute; bottom: 14%; display: flex; gap: 3px; }
+.jour .pastille { width: 7px; height: 7px; border-radius: 50%; background: var(--piste); display: block; }
+.jour .pastille.evt { background: var(--eau); }
+.legende { display: flex; gap: 16px; justify-content: center; margin: 8px 0 0; font-size: 13px; color: var(--doux); }
+.legende span { display: inline-flex; align-items: center; gap: 6px; }
+.legende i { width: 8px; height: 8px; border-radius: 50%; background: var(--piste); display: inline-block; }
+.legende i.evt { background: var(--eau); }
+.course .type { margin-bottom: 4px; }
+.a-venir .date-court.evt { color: var(--eau); }
 .jour.course { box-shadow: inset 0 0 0 2px var(--piste-pale); }
 .jour-titre { margin: 22px 0 8px; font: 700 22px var(--titre); }
 .jour-titre::first-letter { text-transform: uppercase; }
@@ -228,6 +237,9 @@ details summary { cursor: pointer; color: var(--doux); font-size: 15px; }
 .bascule { display: flex; background: var(--surface); border: 1px solid var(--trait); border-radius: 10px; padding: 4px; gap: 4px; margin-bottom: 20px; max-width: 420px; }
 .bascule button { flex: 1; border: 0; border-radius: 7px; background: transparent; color: var(--doux); font: 700 17px var(--titre); padding: 9px 6px; cursor: pointer; }
 .bascule button[aria-pressed="true"] { background: var(--route); color: #fff; }
+.bascule label { flex: 1; display: flex !important; align-items: center; justify-content: center; gap: 6px; border-radius: 7px; padding: 9px 6px; font: 700 16px var(--titre) !important; color: var(--doux); cursor: pointer; }
+.bascule label:has(input:checked) { background: var(--route); color: #fff; }
+.bascule input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
 .seance .actions-bureau { display: inline-flex; margin-top: 2px; }
 
 /* Sondages */
@@ -270,7 +282,7 @@ section + section { margin-top: 28px; }
   <button data-onglet="annonces"><svg viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 6 2.5 8 2.5 8h-17S6 15 6 9M10 20.5a2.2 2.2 0 0 0 4 0"/></svg>Annonces</button>
   <button data-onglet="entrainements"><svg viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 2M10 3h4"/></svg>Entraînements</button>
   <button data-onglet="sondages"><svg viewBox="0 0 24 24"><path d="M5 20v-8M12 20V5M19 20v-5"/></svg>Sondages</button>
-  <button data-onglet="courses"><svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h12l-2.5 4.5L17 13H5"/></svg>Courses</button>
+  <button data-onglet="courses"><svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h12l-2.5 4.5L17 13H5"/></svg>Calendrier</button>
   <button data-onglet="club"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16.5v-5M12 8h.01"/></svg>Club</button>
 </nav>
 
@@ -441,6 +453,7 @@ function aller(onglet) {
 const ONGLETS_LIENS = ['annonces', 'entrainements', 'sondages', 'courses', 'club'];
 function ongletDepuisAdresse() {
   const o = location.hash.slice(1);
+  if (o === 'calendrier') return 'courses';
   return ONGLETS_LIENS.includes(o) ? o : null;
 }
 
@@ -557,7 +570,7 @@ async function vueAccueil(m) {
       ${bouton('annonces', 'Annonces', nouvelles, '', valide)}
       ${bouton('entrainements', 'Entraînements', 0, 'ic-eau', true)}
       ${bouton('sondages', 'Sondages', aVoter, '', valide)}
-      ${bouton('courses', 'Courses', nouvellesCourses, 'ic-piste', valide)}
+      ${bouton('courses', 'Calendrier', nouvellesCourses, 'ic-piste', valide)}
     </div>`;
 
   m.onclick = e => {
@@ -710,14 +723,16 @@ async function vueCourses(m) {
   for (let i = 0; i < decalage; i++) cases += '<span></span>';
   for (let j = 1; j <= nb; j++) {
     const k = ymd(new Date(y, mo, j));
-    const n = (parJour[k] || []).length;
-    cases += `<button type="button" class="jour ${k === aujourdhui ? 'auj' : ''} ${k === S.jour ? 'sel' : ''} ${n ? 'course' : ''}"
-      data-jour="${k}" aria-pressed="${k === S.jour}" aria-label="${esc(fmtJour(k))}${n ? `, ${n} course${n > 1 ? 's' : ''}` : ''}">
-      <span>${j}</span>${n ? '<i class="pastille"></i>' : ''}</button>`;
+    const duJ = parJour[k] || [];
+    const nC = duJ.filter(c => c.type !== 'evenement').length, nE = duJ.length - nC;
+    const desc = [nC ? `${nC} course${nC > 1 ? 's' : ''}` : '', nE ? `${nE} événement${nE > 1 ? 's' : ''} du club` : ''].filter(Boolean).join(' et ');
+    cases += `<button type="button" class="jour ${k === aujourdhui ? 'auj' : ''} ${k === S.jour ? 'sel' : ''} ${duJ.length ? 'course' : ''}"
+      data-jour="${k}" aria-pressed="${k === S.jour}" aria-label="${esc(fmtJour(k))}${desc ? `, ${desc}` : ''}">
+      <span>${j}</span>${duJ.length ? `<span class="pastilles">${nC ? '<i class="pastille"></i>' : ''}${nE ? '<i class="pastille evt"></i>' : ''}</span>` : ''}</button>`;
   }
 
   m.innerHTML = `
-    <div class="tete"><h1>Courses</h1><button class="btn" type="button" data-action="ajouter">Ajouter une course</button></div>
+    <div class="tete"><h1>Calendrier</h1><button class="btn" type="button" data-action="ajouter">${estBureau() ? 'Ajouter' : 'Ajouter une course'}</button></div>
     <div id="zone-form"></div>
     <div class="calendrier">
     <div class="mois">
@@ -736,12 +751,13 @@ async function vueCourses(m) {
     </div>` : ''}
     <div class="cal-tete" aria-hidden="true">${['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(j => `<span>${j}</span>`).join('')}</div>
     <div class="cal-grille">${cases}</div>
+    <p class="legende" aria-hidden="true"><span><i></i>Course</span><span><i class="evt"></i>Événement du club</span></p>
     </div>
     <p class="jour-titre">${esc(fmtJour(S.jour))}</p>
-    ${duJour.length ? duJour.map(c => carteCourse(c, parts)).join('') : '<p class="sous">Aucune course ce jour-là. Touchez une date marquée d\'une pastille, ou ajoutez une course.</p>'}
+    ${duJour.length ? duJour.map(c => carteCourse(c, parts)).join('') : '<p class="sous">Rien de prévu ce jour-là. Touchez une date marquée d\'une pastille, ou ajoutez une course.</p>'}
     ${courses.length ? `<div class="a-venir"><h3>Ce mois-ci</h3>${courses.map(c => `
       <button type="button" data-jour="${c.date_debut < debut ? debut : esc(c.date_debut)}">
-        <span class="date-court">${esc(fmtCourt(c.date_debut))}</span><span>${esc(c.nom)}${c.lieu ? ` <span class="sous">${esc(c.lieu)}</span>` : ''}</span>
+        <span class="date-court ${c.type === 'evenement' ? 'evt' : ''}">${esc(fmtCourt(c.date_debut))}</span><span>${esc(c.nom)}${c.lieu ? ` <span class="sous">${esc(c.lieu)}</span>` : ''}</span>
       </button>`).join('')}</div>` : ''}`;
 
   const allerAuMois = (annee, mois) => {
@@ -793,8 +809,8 @@ async function vueCourses(m) {
       const c = courses.find(x => x.id === b.dataset.modifier);
       zoneForm(m, formCourse(c)); return;
     }
-    if (b.dataset.supprimer && confirm('Supprimer cette course du calendrier ? Les participations associées seront aussi supprimées.'))
-      return occupe(b, async () => { await q(sb.from('courses').delete().eq('id', b.dataset.supprimer)); toast('Course supprimée'); rendre(); });
+    if (b.dataset.supprimer && confirm('Supprimer du calendrier ? Les participations associées seront aussi supprimées.'))
+      return occupe(b, async () => { await q(sb.from('courses').delete().eq('id', b.dataset.supprimer)); toast('Supprimé du calendrier'); rendre(); });
     if (b.dataset.participer) {
       const sel = m.querySelector(`select[data-format-pour="${b.dataset.participer}"]`);
       return occupe(b, async () => {
@@ -809,6 +825,11 @@ async function vueCourses(m) {
       });
   };
   m.onchange = e => {
+    if (e.target.name === 'type') {
+      const f = e.target.form;
+      f.querySelector('.seulement-course').hidden = f.type.value === 'evenement';
+      return;
+    }
     if (e.target.name !== 'date_debut') return;
     const fin = e.target.form.date_fin;
     fin.min = e.target.value;
@@ -821,16 +842,17 @@ async function vueCourses(m) {
     const lien = d.lien.trim();
     if (lien && !lienSur(lien)) return toast('Le lien doit commencer par https://', true);
     if (d.date_fin && d.date_fin < d.date_debut) return toast('Le dernier jour doit être après le premier.', true);
+    const type = d.type === 'evenement' ? 'evenement' : 'course';
     const ligne = {
-      nom: d.nom.trim(), lieu: d.lieu.trim() || null, date_debut: d.date_debut,
-      date_fin: d.date_fin && d.date_fin !== d.date_debut ? d.date_fin : null,
-      formats: d.formats.split(',').map(x => x.trim()).filter(Boolean),
+      type, nom: d.nom.trim(), lieu: d.lieu.trim() || null, date_debut: d.date_debut,
+      date_fin: d.date_fin && d.date_fin !== d.date_debut ? d.date_fin : null, heure: d.heure || null,
+      formats: type === 'course' ? d.formats.split(',').map(x => x.trim()).filter(Boolean) : [],
       lien_inscription: lien || null, description: d.description.trim() || null
     };
     occupe(e.submitter, async () => {
       if (f.dataset.id) await q(sb.from('courses').update(ligne).eq('id', f.dataset.id));
       else await q(sb.from('courses').insert(ligne));
-      toast(f.dataset.id ? 'Course modifiée' : 'Course ajoutée');
+      toast(f.dataset.id ? 'Modification enregistrée' : (type === 'evenement' ? 'Événement ajouté' : 'Course ajoutée'));
       S.jour = ligne.date_debut;
       const dd = parseYmd(ligne.date_debut); S.mois = new Date(dd.getFullYear(), dd.getMonth(), 1);
       rendre();
@@ -843,42 +865,51 @@ function carteCourse(c, parts) {
   const moi = inscrits.find(p => p.profil_id === S.profil.id);
   const lien = c.lien_inscription && lienSur(c.lien_inscription);
   const peutModifier = estBureau() || c.cree_par === S.profil.id;
-  const dates = c.date_fin ? `Du ${fmtJour(c.date_debut)} au ${fmtJour(c.date_fin)}` : majuscule(fmtJour(c.date_debut));
+  const evt = c.type === 'evenement';
+  const dates = (c.date_fin ? `Du ${fmtJour(c.date_debut)} au ${fmtJour(c.date_fin)}` : majuscule(fmtJour(c.date_debut)))
+    + (c.heure ? ` à ${fmtHeure(c.heure)}` : '');
   return `<article class="course">
+    <p class="type"><span class="etiquette ${evt ? 'eau' : 'piste'}">${evt ? 'Événement du club' : 'Course'}</span></p>
     <h3>${esc(c.nom)}</h3>
     <p class="sous">${esc(dates)}${c.lieu ? `, ${esc(c.lieu)}` : ''}</p>
     ${c.formats?.length ? `<p>${c.formats.map(f => `<span class="format">${esc(f)}</span>`).join('')}</p>` : ''}
     ${c.description ? `<p>${escBr(c.description)}</p>` : ''}
-    ${lien ? `<p><a href="${esc(lien.href)}" target="_blank" rel="noopener noreferrer">Inscription officielle sur ${esc(lien.hostname)}</a></p>` : ''}
-    <div class="participer">${moi
-      ? `<p class="ok">Vous participez${moi.format ? ` en ${esc(moi.format)}` : ''}.</p>
-         <button class="btn sec" type="button" data-quitter="${esc(c.id)}">Je ne participe plus</button>`
+    ${lien ? `<p><a href="${esc(lien.href)}" target="_blank" rel="noopener noreferrer">${evt ? 'Plus d\'informations' : 'Inscription officielle'} sur ${esc(lien.hostname)}</a></p>` : ''}
+${evt ? '' : `    <div class="participer">${moi
+      ? `<p class="ok">${evt ? 'Vous venez' : 'Vous participez'}${moi.format ? ` en ${esc(moi.format)}` : ''}.</p>
+         <button class="btn sec" type="button" data-quitter="${esc(c.id)}">${evt ? 'Je ne viens plus' : 'Je ne participe plus'}</button>`
       : `${c.formats?.length ? `<select data-format-pour="${esc(c.id)}" aria-label="Format choisi">${c.formats.map(f => `<option>${esc(f)}</option>`).join('')}</select>` : ''}
-         <button class="btn" type="button" data-participer="${esc(c.id)}">Je participe</button>`}
+         <button class="btn" type="button" data-participer="${esc(c.id)}">${evt ? 'Je viens' : 'Je participe'}</button>`}
     </div>
-    <details ${inscrits.length && inscrits.length <= 8 ? 'open' : ''}><summary>${inscrits.length} licencié${inscrits.length > 1 ? 's' : ''} du club inscrit${inscrits.length > 1 ? 's' : ''}</summary>
+    <details ${inscrits.length && inscrits.length <= 8 ? 'open' : ''}><summary>${inscrits.length} licencié${inscrits.length > 1 ? 's' : ''} ${evt ? (inscrits.length > 1 ? 'viennent' : 'vient') : `du club inscrit${inscrits.length > 1 ? 's' : ''}`}</summary>
       <ul class="noms">${inscrits.map(p => `<li>${p.profils ? esc(p.profils.prenom + ' ' + p.profils.nom) : 'Ancien membre'}${p.format ? ` <span class="sous">(${esc(p.format)})</span>` : ''}</li>`).join('') || '<li class="sous">Personne pour le moment.</li>'}</ul>
     </details>
-    <p class="sous petit">Ajoutée par ${c.createur ? esc(c.createur.prenom + ' ' + c.createur.nom) : 'un ancien membre'}
+`}    <p class="sous petit">Ajouté par ${c.createur ? esc(c.createur.prenom + ' ' + c.createur.nom) : 'un ancien membre'}
       ${peutModifier ? `<button class="lien-btn" type="button" data-modifier="${esc(c.id)}">Modifier</button>
       <button class="lien-btn danger" type="button" data-supprimer="${esc(c.id)}">Supprimer</button>` : ''}</p>
   </article>`;
 }
 
 function formCourse(c) {
-  return `<form class="formulaire" ${c ? `data-id="${esc(c.id)}"` : ''}>
-    <h2>${c ? 'Modifier la course' : 'Ajouter une course'}</h2>
-    <label>Nom de la course<input name="nom" required maxlength="120" value="${esc(c?.nom)}"></label>
+  const evt = c?.type === 'evenement';
+  return `<form class="formulaire" data-form="calendrier" ${c ? `data-id="${esc(c.id)}"` : ''}>
+    <h2>${c ? 'Modifier' : 'Ajouter au calendrier'}</h2>
+    ${estBureau() ? `<div class="bascule" role="radiogroup" aria-label="Type">
+      <label><input type="radio" name="type" value="course" ${evt ? '' : 'checked'}> Course</label>
+      <label><input type="radio" name="type" value="evenement" ${evt ? 'checked' : ''}> Événement du club</label></div>`
+      : '<input type="hidden" name="type" value="course">'}
+    <label>Nom<input name="nom" required maxlength="120" value="${esc(c?.nom)}"></label>
     <label>Lieu<input name="lieu" maxlength="120" value="${esc(c?.lieu)}"></label>
     <div class="deux">
       <label>Date<input type="date" name="date_debut" required value="${esc(c?.date_debut || S.jour)}"></label>
       <label>Dernier jour, si plusieurs jours<input type="date" name="date_fin" min="${esc(c?.date_debut || S.jour)}" value="${esc(c?.date_fin)}"></label>
     </div>
     <div id="doublons"></div>
-    <label>Formats, séparés par des virgules<input name="formats" placeholder="XS, S, M, Relais" value="${esc((c?.formats || []).join(', '))}"></label>
-    <label>Lien vers l'inscription officielle<input type="url" name="lien" placeholder="https://…" value="${esc(c?.lien_inscription)}"></label>
+    <label>Heure (facultatif)<input type="time" name="heure" value="${esc(c?.heure?.slice(0, 5))}"></label>
+    <label class="seulement-course" ${evt ? 'hidden' : ''}>Formats, séparés par des virgules<input name="formats" placeholder="XS, S, M, Relais" value="${esc((c?.formats || []).join(', '))}"></label>
+    <label>Lien d'inscription ou d'information (facultatif)<input type="url" name="lien" placeholder="https://…" value="${esc(c?.lien_inscription)}"></label>
     <label>Informations utiles<textarea name="description" rows="3">${esc(c?.description)}</textarea></label>
-    <div class="actions"><button class="btn">${c ? 'Enregistrer' : 'Ajouter la course'}</button>
+    <div class="actions"><button class="btn">${c ? 'Enregistrer' : 'Ajouter'}</button>
       <button type="button" class="btn sec" data-annuler>Annuler</button></div>
   </form>`;
 }
