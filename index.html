@@ -108,6 +108,7 @@ a { color: var(--eau); }
 .lien-btn.wa { color: #128C7E; font-weight: 600; }
 .actions-bureau { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; }
 .pj { margin: 10px 0 4px; display: grid; gap: 8px; }
+.ok-txt { color: var(--vert); font-weight: 600; }
 .licence-apercu { width: 100%; max-height: 320px; object-fit: contain; border-radius: 8px; background: var(--fond); border: 1px solid var(--trait); display: block; }
 a.btn { display: inline-flex; align-items: center; text-decoration: none; }
 .pj-existantes { border: 1px solid var(--trait); border-radius: 8px; padding: 10px 12px; display: grid; gap: 8px; margin: 0; }
@@ -450,7 +451,7 @@ function aller(onglet) {
   history.replaceState(null, '', onglet === 'accueil' ? location.pathname : '#' + onglet);
   rendre(); window.scrollTo(0, 0);
 }
-const ONGLETS_LIENS = ['annonces', 'entrainements', 'sondages', 'courses', 'club'];
+const ONGLETS_LIENS = ['annonces', 'entrainements', 'sondages', 'courses', 'club', 'gestion'];
 function ongletDepuisAdresse() {
   const o = location.hash.slice(1);
   if (o === 'calendrier') return 'courses';
@@ -1326,6 +1327,45 @@ function texteConfidentialite(emailClub) {
    ===================================================================== */
 const BUCKET_LICENCE = 'licences';
 
+/* ---------- Notifications ---------- */
+const estIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const estInstallee = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const b64EnOctets = s => {
+  const b = atob((s + '='.repeat((4 - s.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(b, c => c.charCodeAt(0));
+};
+async function enregistrementSW() {
+  if (!('serviceWorker' in navigator)) return null;
+  return Promise.race([navigator.serviceWorker.ready, new Promise(r => setTimeout(() => r(null), 3000))]);
+}
+async function etatNotifications() {
+  if (!('Notification' in window) || !('PushManager' in window) || !('serviceWorker' in navigator))
+    return estIOS && !estInstallee ? 'installer' : 'indisponible';
+  if (Notification.permission === 'denied') return 'refusees';
+  const reg = await enregistrementSW();
+  const abo = reg && await reg.pushManager.getSubscription();
+  return abo ? 'actives' : 'inactives';
+}
+async function activerNotifications() {
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') throw new Error('Les notifications ont été refusées sur cet appareil.');
+  const r = await fetch(`${CONFIG.url}/functions/v1/notifier`);
+  const { cle } = await r.json();
+  if (!cle) throw new Error('Le service de notifications n\'est pas encore prêt.');
+  const reg = await enregistrementSW();
+  if (!reg) throw new Error('Rechargez l\'appli puis réessayez.');
+  const abo = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64EnOctets(cle) });
+  const j = abo.toJSON();
+  await q(sb.rpc('enregistrer_abonnement', { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth }));
+}
+async function desactiverNotifications() {
+  const reg = await enregistrementSW();
+  const abo = reg && await reg.pushManager.getSubscription();
+  if (!abo) return;
+  await sb.from('push_abonnements').delete().eq('endpoint', abo.endpoint);
+  await abo.unsubscribe();
+}
+
 async function vueProfil(m) {
   if (!S.session) return vueConnexion(m);
   const p = S.profil || {};
@@ -1343,6 +1383,14 @@ async function vueProfil(m) {
     }
   }
   const estImage = licence && /\.(jpe?g|png|webp|gif)$/i.test(licence.name);
+  const notif = estValide() ? await etatNotifications() : null;
+  const texteNotif = {
+    actives: '<p class="ok-txt">Les notifications sont activées sur cet appareil.</p><div class="actions"><button class="btn sec" type="button" data-action="notif-off">Désactiver</button></div>',
+    inactives: '<p>Recevez une alerte pour les nouvelles annonces, les sondages, les changements d\'entraînement et les ajouts au calendrier.</p><div class="actions"><button class="btn" type="button" data-action="notif-on">Activer les notifications</button></div>',
+    refusees: '<p>Les notifications ont été bloquées pour l\'appli. Pour les réactiver, autorisez-les dans les réglages du téléphone ou du navigateur, puis revenez ici.</p>',
+    installer: '<p>Sur iPhone, les notifications ne fonctionnent qu\'avec l\'appli installée : dans Safari, touchez <strong>Partager</strong> puis <strong>Sur l\'écran d\'accueil</strong>, et ouvrez l\'appli depuis l\'icône.</p>',
+    indisponible: '<p>Cet appareil ou ce navigateur ne permet pas de recevoir des notifications.</p>'
+  }[notif];
   const champLicence = libelle => `<label>${libelle}
     <input type="file" name="licence" accept="image/*,.pdf" required></label>
     <div class="actions"><button class="btn" data-action="deposer">Enregistrer</button></div>`;
@@ -1367,6 +1415,8 @@ async function vueProfil(m) {
         ${champLicence('Fichier de la licence (PDF ou photo)')}`}
       <p class="sous petit">Ne déposez ici que votre licence, jamais de certificat médical.</p>
     </form>` : ''}
+    ${notif ? `<div class="formulaire"><h2>Notifications</h2>${texteNotif}
+      <p class="sous petit">Le réglage s'applique à cet appareil : à activer sur chaque téléphone ou ordinateur utilisé.</p></div>` : ''}
     <form class="formulaire" data-type="infos">
       <h2>Mes informations</h2>
       <div class="deux"><label>Prénom<input name="prenom" required maxlength="60" value="${esc(p.prenom)}"></label>
@@ -1382,6 +1432,8 @@ async function vueProfil(m) {
     if (b.dataset.action === 'gestion') aller('gestion');
     if (b.dataset.action === 'deconnexion') occupe(b, async () => { await sb.auth.signOut(); S.onglet = 'accueil'; });
     if (b.dataset.action === 'remplacer') { const z = $('#zone-licence', m); z.hidden = !z.hidden; }
+    if (b.dataset.action === 'notif-on') occupe(b, async () => { await activerNotifications(); toast('Notifications activées'); rendre(); });
+    if (b.dataset.action === 'notif-off') occupe(b, async () => { await desactiverNotifications(); toast('Notifications désactivées'); rendre(); });
     if (b.dataset.action === 'supprimer-licence' && confirm('Supprimer votre licence de l\'appli ?'))
       occupe(b, async () => {
         await q(sb.storage.from(BUCKET_LICENCE).remove([`${uid}/${licence.name}`]));
